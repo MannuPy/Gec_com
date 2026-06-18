@@ -1,0 +1,1 @@
+import{n as e}from"./index-CPjVD0E4.js";const r={list:t=>e.get("/sales/customers",{params:t?{search:t}:void 0}).then(s=>s.data),get:t=>e.get(`/sales/customers/${t}`).then(s=>s.data),create:t=>e.post("/sales/customers",t).then(s=>s.data),update:(t,s)=>e.put(`/sales/customers/${t}`,s).then(a=>a.data)};export{r as c};
