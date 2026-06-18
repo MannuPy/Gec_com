@@ -188,3 +188,6 @@ class SaleSchema(Schema):
 
     def get_customer_name(self, obj):
         return obj.customer.full_name if obj.customer else None
+
+    def get_approved_by_name(self, obj):
+        return obj.approved_by.full_name if obj.approved_by else None
