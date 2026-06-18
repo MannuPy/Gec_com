@@ -127,7 +127,7 @@ def register_frontend(app: Flask) -> None:
     (fallback SPA pour le routeur cote client, cf. frontend/src/app/router.tsx),
     sauf si le chemin correspond a un fichier statique existant (JS/CSS/icones).
     """
-    dist_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
+    dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
 
     @app.route("/", defaults={"path": ""})
     @app.route("/<path:path>")
