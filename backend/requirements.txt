@@ -1,0 +1,35 @@
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.7
+Flask-JWT-Extended==4.6.0
+Flask-Cors==4.0.1
+flask-marshmallow==1.2.1
+marshmallow-sqlalchemy==1.0.0
+marshmallow==3.21.3
+# Driver PostgreSQL (environnement de developpement Docker Compose).
+psycopg2-binary==2.9.9
+# Driver MySQL pur Python (sans dependance systeme a compiler) - utilise pour
+# un hebergement PythonAnywhere (DATABASE_URL=mysql+pymysql://..., cf.
+# .env.pythonanywhere.example et docs/25-DEPLOIEMENT-CICD.md §25.9).
+PyMySQL==1.1.1
+python-dotenv==1.0.1
+bcrypt==4.1.3
+gunicorn==22.0.0
+
+# --- Lot 1 : Analyse de donnees / Machine Learning / IA (20-MACHINE-LEARNING.md) ---
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.5.1
+xgboost==2.1.1
+prophet==1.1.5
+joblib==1.4.2
+
+# --- Taches asynchrones (Celery + Redis) ---
+celery==5.4.0
+redis==5.0.7
+
+# --- Suivi/registre de modeles ML ---
+mlflow==2.14.3
+
+# --- Generation de documents PDF (recus de vente, exports rapports) ---
+reportlab==4.2.2

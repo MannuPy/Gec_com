@@ -1,0 +1,17 @@
+SKU,Désignation,Catégorie,Marque,Unité,Prix d'achat (FCFA),Prix client simple (FCFA),Prix client technicien (FCFA),Seuil d'alerte stock
+CIM-DAN-50,Ciment Dangote 50kg,Matériaux de construction,Dangote,SAC,4200,4800,4600,50
+FER-T8-12M,Fer à béton torsadé Ø8 (barre 12m),Matériaux de construction,Generic,UNITE,3500,4000,3800,30
+PEI-SOBA-BLANC-20L,Peinture SOBA blanc mat 20L,Peinture,SOBA,BOITE,18000,21000,19500,10
+VIS-6X40-BTE,Boîte de vis à bois 6x40mm (200 pcs),Visserie,Generic,BOITE,1500,2000,1800,20
+TUB-PVC-110-4M,Tube PVC évacuation Ø110mm (4m),Plomberie,Generic,UNITE,6500,7800,7200,15
+CAB-2X5-100M,Câble électrique 2x5mm² (rouleau 100m),Électricité,CIMFASO,UNITE,45000,52000,49000,5
+MAR-1KG,Marteau de menuisier 1kg,Outillage,Tata,UNITE,3000,4000,3500,8
+PEI-SOBA-ROUGE-1L,Peinture SOBA rouge brillant 1L,Peinture,SOBA,BOITE,2200,2800,2600,15
+VIS-4X30-BTE,Boîte de vis à bois 4x30mm (200 pcs),Visserie,Generic,BOITE,1200,1700,1500,25
+TUB-PVC-50-4M,Tube PVC évacuation Ø50mm (4m),Plomberie,Generic,UNITE,2800,3500,3200,20
+FER-T6-12M,Fer à béton torsadé Ø6 (barre 12m),Matériaux de construction,Generic,UNITE,2000,2400,2200,40
+CAB-2X25-100M,Câble électrique 2x2.5mm² (rouleau 100m),Électricité,CIMFASO,UNITE,28000,33000,31000,8
+AMP-LED-9W,Ampoule LED 9W culot E27,Électricité,Philips,UNITE,800,1200,1100,50
+ROB-EVIER-STD,Robinet d'évier mitigeur standard,Plomberie,Sanifix,UNITE,8000,11000,10000,6
+CAD-50MM,Cadenas à anse 50mm,Outillage,Generic,UNITE,1500,2200,2000,15
+BROUETTE-STD,Brouette de chantier 80L,Outillage,Generic,UNITE,15000,20000,18500,5

@@ -1,0 +1,219 @@
+"""
+Segmentation client RFM (Recence / Frequence / Montant) par clustering
+K-Means (cf. 20-MACHINE-LEARNING.md section 20.4). Frequence de
+reentrainement : mensuelle (tache Celery `compute_rfm_segments_task`).
+
+Repli : si scikit-learn est indisponible ou si le nombre de clients est
+inferieur au nombre de clusters demandes, une segmentation par quartiles
+(regles) est appliquee et consignee comme algorithme `RULE_BASED_QUANTILES`.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timedelta
+
+import numpy as np
+import pandas as pd
+
+from app.extensions import db
+from app.ml.common import register_model, record_predictions, latest_predictions, MLflowRun
+from app.models import Customer, FsCustomerRfm, Sale, SaleLine, SaleStatus
+
+try:
+    from sklearn.cluster import KMeans
+    from sklearn.preprocessing import StandardScaler
+
+    HAS_SKLEARN = True
+except ImportError:
+    HAS_SKLEARN = False
+
+PREDICTION_TYPE = "RFM_SEGMENT"
+MODEL_TYPE = "RFM_SEGMENTATION"
+
+SEGMENT_LABELS = {
+    "CHAMPIONS": "Champions",
+    "REGULIERS": "Clients reguliers",
+    "A_RISQUE": "A risque",
+    "OCCASIONNELS": "Occasionnels",
+}
+
+SEGMENT_ACTIONS = {
+    "CHAMPIONS": "Programme de fidelite, credit etendu",
+    "REGULIERS": "Relances ciblees",
+    "A_RISQUE": "Campagne de reactivation",
+    "OCCASIONNELS": "Communication standard",
+}
+
+
+def _load_rfm_from_feature_store() -> pd.DataFrame | None:
+    """Charge le RFM depuis la Feature Store (`fs_customer_rfm`, cf.
+    21-PIPELINE-ETL.md section 21.6) si elle a ete alimentee par le pipeline
+    ETL (`etl_build_features`).
+
+    Retourne `None` si la table est vide, pour repli sur le calcul direct
+    (`_load_rfm_dataframe_direct`)."""
+    rows = FsCustomerRfm.query.all()
+    if not rows:
+        return None
+
+    return pd.DataFrame(
+        [
+            {
+                "customer_id": r.customer_id,
+                "recency": r.recency_days,
+                "frequency": r.frequency,
+                "monetary": float(r.monetary),
+            }
+            for r in rows
+        ]
+    )
+
+
+def _load_rfm_dataframe_direct(months: int = 12) -> pd.DataFrame:
+    cutoff = datetime.utcnow() - timedelta(days=months * 30)
+    rows = (
+        db.session.query(
+            Sale.customer_id,
+            Sale.created_at,
+            SaleLine.line_total,
+        )
+        .join(SaleLine, SaleLine.sale_id == Sale.id)
+        .filter(
+            Sale.status == SaleStatus.VALIDEE.value,
+            Sale.created_at >= cutoff,
+            Sale.customer_id.isnot(None),
+        )
+        .all()
+    )
+    df = pd.DataFrame(rows, columns=["customer_id", "created_at", "line_total"])
+    if df.empty:
+        return df
+
+    df["line_total"] = df["line_total"].astype(float)
+    now = datetime.utcnow()
+    grouped = df.groupby("customer_id").agg(
+        recency=("created_at", lambda s: (now - s.max()).days),
+        frequency=("created_at", "count"),
+        monetary=("line_total", "sum"),
+    )
+    return grouped.reset_index()
+
+
+def _load_rfm_dataframe(months: int = 12) -> pd.DataFrame:
+    """Charge le RFM (RF-26) : Feature Store en priorite
+    (`fs_customer_rfm`, alimentee par `etl_build_features`), repli sur le
+    calcul direct si elle est vide."""
+    fs_df = _load_rfm_from_feature_store()
+    if fs_df is not None:
+        return fs_df
+    return _load_rfm_dataframe_direct(months)
+
+
+def _assign_segments_kmeans(df: pd.DataFrame, n_clusters: int = 4) -> tuple[pd.DataFrame, str]:
+    X = df[["recency", "frequency", "monetary"]].to_numpy()
+    X_scaled = StandardScaler().fit_transform(X)
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+    df = df.copy()
+    df["cluster"] = kmeans.fit_predict(X_scaled)
+
+    # Ordonner les clusters : Champions = faible recence, forte frequence/montant
+    centers = pd.DataFrame(kmeans.cluster_centers_, columns=["recency", "frequency", "monetary"])
+    centers["score"] = centers["frequency"] + centers["monetary"] - centers["recency"]
+    ranking = centers["score"].sort_values(ascending=False).index.tolist()
+
+    labels = ["CHAMPIONS", "REGULIERS", "A_RISQUE", "OCCASIONNELS"][: len(ranking)]
+    cluster_to_label = {cluster: labels[i] for i, cluster in enumerate(ranking)}
+    df["segment"] = df["cluster"].map(cluster_to_label)
+    return df, "KMEANS"
+
+
+def _assign_segments_quantiles(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
+    df = df.copy()
+    r_median = df["recency"].median()
+    fm_median = (df["frequency"] + df["monetary"] / max(df["monetary"].max(), 1)).median()
+    fm_score = df["frequency"] + df["monetary"] / max(df["monetary"].max(), 1)
+
+    def label(row_recency: float, row_fm: float) -> str:
+        if row_recency <= r_median and row_fm >= fm_median:
+            return "CHAMPIONS"
+        if row_recency <= r_median and row_fm < fm_median:
+            return "REGULIERS"
+        if row_recency > r_median and row_fm >= fm_median:
+            return "A_RISQUE"
+        return "OCCASIONNELS"
+
+    df["segment"] = [label(r, fm) for r, fm in zip(df["recency"], fm_score)]
+    return df, "RULE_BASED_QUANTILES"
+
+
+def train(months: int = 12, n_clusters: int = 4) -> dict:
+    df = _load_rfm_dataframe(months)
+
+    if df.empty:
+        metrics = {"n_customers": 0.0}
+        with MLflowRun(MODEL_TYPE) as run:
+            run.log_metrics(metrics)
+            model = register_model(
+                model_type=MODEL_TYPE,
+                algorithm="NO_DATA",
+                metrics=metrics,
+                mlflow_run_id=run.run_id,
+            )
+        record_predictions(model, PREDICTION_TYPE, [])
+        db.session.commit()
+        return {"model_id": model.id, "version": model.version, "metrics": metrics, "n_customers": 0}
+
+    if HAS_SKLEARN and len(df) >= n_clusters:
+        df, algorithm = _assign_segments_kmeans(df, n_clusters)
+    else:
+        df, algorithm = _assign_segments_quantiles(df)
+
+    customers = {c.id: c for c in Customer.query.all()}
+
+    segment_counts = df["segment"].value_counts().to_dict()
+    metrics = {"n_customers": float(len(df)), **{f"n_{k.lower()}": float(v) for k, v in segment_counts.items()}}
+
+    with MLflowRun(MODEL_TYPE) as run:
+        run.log_params({"months": months, "n_clusters": n_clusters})
+        run.log_metrics(metrics)
+        model = register_model(
+            model_type=MODEL_TYPE,
+            algorithm=algorithm,
+            metrics=metrics,
+            mlflow_run_id=run.run_id,
+        )
+
+    entries = []
+    for _, row in df.iterrows():
+        customer = customers.get(row["customer_id"])
+        entries.append(
+            {
+                "entity_type": "customer",
+                "entity_id": row["customer_id"],
+                "payload": {
+                    "customer_name": customer.full_name if customer else None,
+                    "recency_days": int(row["recency"]),
+                    "frequency": int(row["frequency"]),
+                    "monetary": round(float(row["monetary"]), 2),
+                    "segment": row["segment"],
+                    "segment_label": SEGMENT_LABELS.get(row["segment"], row["segment"]),
+                    "recommended_action": SEGMENT_ACTIONS.get(row["segment"], ""),
+                },
+            }
+        )
+
+    record_predictions(model, PREDICTION_TYPE, entries)
+    db.session.commit()
+
+    return {"model_id": model.id, "version": model.version, "metrics": metrics, "n_customers": len(df)}
+
+
+def latest() -> list[dict]:
+    return [
+        {
+            "customer_id": p.entity_id,
+            "model_id": p.model_id,
+            "created_at": p.created_at.isoformat(),
+            **p.payload_json,
+        }
+        for p in latest_predictions(PREDICTION_TYPE)
+    ]

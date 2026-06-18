@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply text-primary-dark;
+  }
+
+  body {
+    @apply bg-surface font-sans antialiased;
+  }
+}
+
+@layer components {
+  /* Boutons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium
+      transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary text-white hover:bg-primary-dark focus:ring-primary;
+  }
+
+  .btn-secondary {
+    @apply btn bg-white text-primary-dark border border-muted/40 hover:bg-surface focus:ring-muted;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-primary-dark hover:bg-white/60;
+  }
+
+  /* Champs de formulaire */
+  .input {
+    @apply block w-full rounded-lg border border-muted/40 bg-white px-3 py-2 text-sm text-primary-dark
+      placeholder:text-muted focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary;
+  }
+
+  .label {
+    @apply mb-1 block text-sm font-medium text-primary-dark;
+  }
+
+  .error-text {
+    @apply mt-1 text-xs text-red-600;
+  }
+
+  /* Cartes */
+  .card {
+    @apply rounded-xl bg-white p-4 shadow-card;
+  }
+
+  .card-title {
+    @apply mb-3 text-base font-semibold text-primary-dark;
+  }
+
+  /* Tableaux */
+  .table-base {
+    @apply w-full text-left text-sm;
+  }
+
+  .table-base th {
+    @apply border-b border-muted/30 px-3 py-2 font-semibold text-muted;
+  }
+
+  .table-base td {
+    @apply border-b border-muted/10 px-3 py-2 text-primary-dark;
+  }
+
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+
+  .badge-success {
+    @apply badge bg-green-100 text-green-800;
+  }
+
+  .badge-warning {
+    @apply badge bg-amber-100 text-amber-800;
+  }
+
+  .badge-danger {
+    @apply badge bg-red-100 text-red-800;
+  }
+
+  .badge-info {
+    @apply badge bg-primary-light/20 text-primary;
+  }
+}

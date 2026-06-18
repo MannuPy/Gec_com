@@ -1,0 +1,157 @@
+# version obsolète supprimée (warning Docker Compose v2)
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: gescom_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gescom_bf
+      POSTGRES_USER: gescom
+      POSTGRES_PASSWORD: gescom_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gescom -d gescom_bf"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: gescom_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    # Healthcheck ajouté : worker/beat attendent que Redis réponde
+    # avant de démarrer (évite "Error 111 Connection refused")
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+    container_name: gescom_api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      FLASK_ENV: development
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      # Injection explicite des URLs broker/backend Celery
+      # (redis = nom du service Docker, pas localhost)
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: >
+      sh -c "flask db upgrade && python -m app.seed && flask run --host=0.0.0.0 --port=5000"
+
+  # ---- Machine Learning : worker Celery (entrainements/inferences) ----
+  # cf. 20-MACHINE-LEARNING.md sect. 20.7, 21-PIPELINE-ETL.md
+  worker:
+    build:
+      context: ./backend
+    container_name: gescom_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      FLASK_ENV: development
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      # Même correction : broker via nom de service Docker "redis"
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: celery -A celery_worker.celery worker --loglevel=info -Q ml
+
+  # ---- Machine Learning : planificateur Celery beat (taches periodiques) ----
+  beat:
+    build:
+      context: ./backend
+    container_name: gescom_beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      FLASK_ENV: development
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      # Même correction broker
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      # Ajouté pour cohérence avec worker (beat envoie aussi des tâches ML)
+      mlflow:
+        condition: service_started
+    volumes:
+      - ./backend:/app
+    command: celery -A celery_worker.celery beat --loglevel=info
+
+  # ---- Suivi des modeles ML (registre + tracking des runs) ----
+  # En dev local sans Docker, MLFLOW_TRACKING_URI par defaut vaut
+  # "file:./mlruns" (cf. app/config.py) : ce service est optionnel mais
+  # recommande pour une UI partagee entre api/worker/beat.
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.14.3
+    container_name: gescom_mlflow
+    restart: unless-stopped
+    ports:
+      - "5001:5000"
+    volumes:
+      - mlflow_data:/mlflow
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: gescom_frontend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # VITE_API_PROXY_TARGET : utilisé par vite.config.js côté serveur Vite
+      # (proxy vers le backend Flask). "api" = nom du service Docker.
+      VITE_API_PROXY_TARGET: http://api:5000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    volumes:
+      - ./frontend:/app
+      - gescom_frontend_nm:/app/node_modules
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 5173"
+
+
+volumes:
+  pgdata:
+  mlflow_data:
+  gescom_frontend_nm:

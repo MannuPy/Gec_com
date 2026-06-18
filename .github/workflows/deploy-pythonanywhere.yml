@@ -1,0 +1,161 @@
+# ============================================================
+# GesCom-BF — Déploiement automatique sur PythonAnywhere
+# ============================================================
+#
+# Ce workflow GitHub Actions se déclenche à chaque push sur `main`.
+# Il :
+#   1. Build le frontend React (Vite)
+#   2. Copie le dossier dist/ sur PythonAnywhere via SSH (rsync/scp)
+#   3. Recharge l'application web via l'API PythonAnywhere
+#
+# CONFIGURATION REQUISE (GitHub → Settings → Secrets and variables → Actions) :
+#
+#   PA_USERNAME      : votre nom d'utilisateur PythonAnywhere (ex. mannu)
+#   PA_SSH_PASSWORD  : votre mot de passe PythonAnywhere (pour SSH)
+#   PA_API_TOKEN     : token API PythonAnywhere
+#                      (Account → API token → Create a new API token)
+#
+# Cf. docs/33-GUIDE-COMPLET-MISE-EN-LIGNE-PYTHONANYWHERE.md §Solution 3
+# ============================================================
+
+name: Deploy to PythonAnywhere
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # permet un déclenchement manuel depuis GitHub
+
+jobs:
+  build-and-deploy:
+    name: Build frontend + Deploy to PythonAnywhere
+    runs-on: ubuntu-latest
+
+    steps:
+      # ------------------------------------------------------------------
+      # 1. Récupérer le code
+      # ------------------------------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------
+      # 2. Installer Node.js
+      # ------------------------------------------------------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      # ------------------------------------------------------------------
+      # 3. Build du frontend React (Vite + TypeScript)
+      # ------------------------------------------------------------------
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+        env:
+          # En production, l'API est sur le même domaine → pas de proxy nécessaire
+          VITE_API_PROXY_TARGET: ''
+
+      # ------------------------------------------------------------------
+      # 4. Vérifier que le build existe
+      # ------------------------------------------------------------------
+      - name: Verify build output
+        run: |
+          ls -la frontend/dist/
+          echo "Build frontend OK : $(find frontend/dist -type f | wc -l) fichiers générés"
+
+      # ------------------------------------------------------------------
+      # 5. Installer sshpass pour l'authentification par mot de passe SSH
+      # ------------------------------------------------------------------
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
+
+      # ------------------------------------------------------------------
+      # 6. Copier le build vers PythonAnywhere via SCP
+      # ------------------------------------------------------------------
+      - name: Upload frontend dist to PythonAnywhere
+        env:
+          PA_USERNAME: ${{ secrets.PA_USERNAME }}
+          PA_SSH_PASSWORD: ${{ secrets.PA_SSH_PASSWORD }}
+        run: |
+          # Créer le dossier de destination si nécessaire
+          sshpass -p "$PA_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+            "$PA_USERNAME@ssh.pythonanywhere.com" \
+            "mkdir -p /home/$PA_USERNAME/gescom-bf/frontend/dist"
+
+          # Copier les fichiers buildés
+          sshpass -p "$PA_SSH_PASSWORD" scp -o StrictHostKeyChecking=no -r \
+            frontend/dist/ \
+            "$PA_USERNAME@ssh.pythonanywhere.com:/home/$PA_USERNAME/gescom-bf/frontend/"
+
+          echo "✅ Frontend dist copié sur PythonAnywhere"
+
+      # ------------------------------------------------------------------
+      # 7. (Optionnel) Mettre à jour le code backend si modifié
+      # ------------------------------------------------------------------
+      - name: Pull latest backend code on PythonAnywhere
+        env:
+          PA_USERNAME: ${{ secrets.PA_USERNAME }}
+          PA_SSH_PASSWORD: ${{ secrets.PA_SSH_PASSWORD }}
+        run: |
+          sshpass -p "$PA_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+            "$PA_USERNAME@ssh.pythonanywhere.com" \
+            "cd /home/$PA_USERNAME/gescom-bf && git pull origin main"
+
+      # ------------------------------------------------------------------
+      # 8. Appliquer les nouvelles migrations (si nécessaire)
+      # ------------------------------------------------------------------
+      - name: Run database migrations
+        env:
+          PA_USERNAME: ${{ secrets.PA_USERNAME }}
+          PA_SSH_PASSWORD: ${{ secrets.PA_SSH_PASSWORD }}
+        run: |
+          sshpass -p "$PA_SSH_PASSWORD" ssh -o StrictHostKeyChecking=no \
+            "$PA_USERNAME@ssh.pythonanywhere.com" \
+            "cd /home/$PA_USERNAME/gescom-bf/backend && \
+             source .venv/bin/activate && \
+             export FLASK_APP=wsgi.py && \
+             python -m flask db upgrade"
+
+      # ------------------------------------------------------------------
+      # 9. Recharger l'application web via l'API PythonAnywhere
+      # ------------------------------------------------------------------
+      - name: Reload PythonAnywhere web app
+        env:
+          PA_USERNAME: ${{ secrets.PA_USERNAME }}
+          PA_API_TOKEN: ${{ secrets.PA_API_TOKEN }}
+        run: |
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Token $PA_API_TOKEN" \
+            "https://www.pythonanywhere.com/api/v0/user/$PA_USERNAME/webapps/$PA_USERNAME.pythonanywhere.com/reload/")
+
+          if [ "$HTTP_STATUS" -eq 200 ]; then
+            echo "✅ Application rechargée avec succès"
+          else
+            echo "❌ Erreur rechargement : HTTP $HTTP_STATUS"
+            exit 1
+          fi
+
+      # ------------------------------------------------------------------
+      # 10. Test de fumée — vérifier que le site répond
+      # ------------------------------------------------------------------
+      - name: Smoke test
+        env:
+          PA_USERNAME: ${{ secrets.PA_USERNAME }}
+        run: |
+          sleep 5   # laisser le temps à uWSGI de redémarrer
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://$PA_USERNAME.pythonanywhere.com/health")
+
+          if [ "$HTTP_STATUS" -eq 200 ]; then
+            echo "✅ Site opérationnel : https://$PA_USERNAME.pythonanywhere.com"
+          else
+            echo "❌ Site inaccessible : HTTP $HTTP_STATUS"
+            exit 1
+          fi
