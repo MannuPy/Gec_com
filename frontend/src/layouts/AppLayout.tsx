@@ -148,51 +148,41 @@ export function AppLayout() {
         </div>
       </aside>
 
-      {/* ── Zone de contenu ──────────────────────────────────────────── */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* ── Contenu principal ──────────────────────────────────────── */}
+      <div className="flex flex-1 flex-col overflow-hidden">
 
-        {/* Topbar */}
-        <header className="flex items-center justify-between border-b border-muted/20 bg-white px-4 py-3 md:px-6">
-          {/* Bouton hamburger (mobile) + infos site */}
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setSidebarOpen(true)}
-              className="rounded-lg p-2 text-primary-dark hover:bg-surface lg:hidden"
-              aria-label="Ouvrir le menu"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-primary-dark">
-                {user?.branch_name ?? "Tous les sites"}
-              </p>
-              <p className="text-xs text-muted">{roleLabel(user?.role)}</p>
-            </div>
-          </div>
-
-          {/* Badges + infos utilisateur + déconnexion */}
-          <div className="flex items-center gap-2 md:gap-4">
-            <PendingSyncBadge />
-            <ConnectionBadge />
-            {/* Infos utilisateur : masquées sur très petits écrans */}
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-medium text-primary-dark">{user?.full_name}</p>
-              <p className="text-xs text-muted">{user?.email}</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="btn-ghost"
-              title="Se déconnecter"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
+        {/* En-tête mobile : bouton hamburger + logo */}
+        <header className="flex items-center gap-3 border-b border-surface bg-white px-4 py-3 lg:hidden">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-lg p-1.5 text-muted hover:bg-surface"
+            aria-label="Ouvrir le menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="flex items-center gap-2">
+            <Store className="h-5 w-5 text-primary" />
+            <span className="font-semibold text-primary-dark">GesCom-BF</span>
           </div>
         </header>
 
-        {/* Contenu principal */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-6">
+        {/* Barre de statut : connexion + sync + déconnexion */}
+        <div className="flex items-center justify-end gap-3 border-b border-surface bg-white px-4 py-2">
+          <ConnectionBadge />
+          <PendingSyncBadge />
+          <button
+            type="button"
+            className="btn-ghost flex items-center gap-2 text-sm"
+            onClick={handleLogout}
+          >
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Déconnexion</span>
+          </button>
+        </div>
+
+        {/* Zone de contenu scrollable */}
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6">
           <Outlet />
         </main>
       </div>
@@ -200,11 +190,4 @@ export function AppLayout() {
   );
 }
 
-function roleLabel(role?: string | null) {
-  switch (role) {
-    case "ADMIN":       return "Administrateur";
-    case "MAGASINIER":  return "Magasinier";
-    case "VENDEUR":     return "Vendeur";
-    default:            return role ?? "";
-  }
-}
+export default AppLayout;

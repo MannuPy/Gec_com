@@ -668,11 +668,16 @@ function ReceptionCreateModal({ suppliers, branches, onClose, onSuccess }: Recep
             Annuler
           </button>
           <button type="button" className="btn-primary" disabled={createMutation.isPending} onClick={handleSubmit}>
-            {createMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Créer (brouillon)
+            {createMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
+            Enregistrer la réception
           </button>
         </div>
       </div>
     </Modal>
   );
 }
+

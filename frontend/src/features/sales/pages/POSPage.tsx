@@ -671,4 +671,7 @@ export default function POSPage() {
             {isOnline ? "Encaisser" : "Encaisser (hors-ligne)"}
           </button>
         </div>
-   
+      </div>
+    </div>
+  );
+}

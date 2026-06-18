@@ -374,4 +374,9 @@ const SEVERITY_STYLES: Record<DashboardAlertSeverity, string> = {
 function AlertRow({ alert }: { alert: DashboardAlert }) {
   const Icon = ALERT_ICONS[alert.type] ?? AlertTriangle;
   return (
-    <li c
+    <li className={`flex items-start gap-3 rounded-r-lg border-l-4 p-3 ${SEVERITY_STYLES[alert.severity]}`}>
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      <p className="text-sm">{alert.message}</p>
+    </li>
+  );
+}

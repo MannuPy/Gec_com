@@ -1,5 +1,6 @@
 node_modules
-dist
+# dist intentionnellement inclus dans git pour deploiement PythonAnywhere (pas de Node sur le serveur)
+# dist
 dist-ssr
 *.local
 .env

@@ -511,4 +511,15 @@ function TransferCreateModal({ branches, onClose, onSuccess }: TransferCreateMod
             Annuler
           </button>
           <button type="button" className="btn-primary" disabled={createMutation.isPending} onClick={handleSubmit}>
-            {createMutation.isPending && <Loader2 className="h-4 w-4 animate
+            {createMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+            Créer le transfert
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
