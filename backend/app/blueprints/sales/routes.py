@@ -6,7 +6,7 @@ logique metier est deleguee a `app.services.sale_service`.
 from datetime import date
 from decimal import Decimal
 
-from flask import current_app, jsonify, request
+from flask import jsonify, request
 from flask_jwt_extended import get_jwt_identity
 from sqlalchemy import or_
 
@@ -103,18 +103,6 @@ def sync_sales_route():
     results = sync_offline_sales(payload["sales"], cashier_id=get_jwt_identity())
     return jsonify({"results": SaleSyncResultSchema(many=True).dump(results)}), 200
 
-
-@sales_bp.get("/discounts/rates")
-@require_permission("sales:create")
-def discount_rates():
-    """Taux de remise autorises et seuil d'approbation (RG-22/RG-23).
-
-    Mis en cache cote client pour le mode hors-ligne (cf. 26-GESTION-OFFLINE-PWA.md section 26.7).
-    """
-    return jsonify({
-        "allowed_rates": current_app.config["ALLOWED_DISCOUNT_RATES"],
-        "approval_threshold": current_app.config["DISCOUNT_APPROVAL_THRESHOLD"],
-    })
 
 
 @sales_bp.get("/<string:sale_id>")

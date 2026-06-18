@@ -11,12 +11,7 @@ import { useCatalogSync } from "@/offline/catalogSync";
 import { db, type CachedProduct, type OfflineSale, type OfflineSaleLine } from "@/offline/db";
 import { useOnlineStatus } from "@/offline/useOnlineStatus";
 import type { Product } from "@/types/product";
-import {
-  ALLOWED_DISCOUNT_RATES,
-  DISCOUNT_APPROVAL_THRESHOLD,
-  type Sale,
-  type SaleCreatePayload,
-} from "@/types/sale";
+import type { Sale, SaleCreatePayload } from "@/types/sale";
 import { formatCurrency } from "@/utils/format";
 
 /**
@@ -79,8 +74,6 @@ export default function POSPage() {
   const [lastSale, setLastSale] = useState<Sale | null>(null);
   const [offlineReceipt, setOfflineReceipt] = useState<OfflineReceipt | null>(null);
   const [offlineProducts, setOfflineProducts] = useState<CachedProduct[]>([]);
-
-  const canApproveDiscount = hasPermission("sales:approve_discount");
 
   // Recherche debouncee pour eviter de spammer l'API a chaque frappe.
   useEffect(() => {
@@ -225,8 +218,8 @@ export default function POSPage() {
     if (paymentType === "CREDIT" && !customerId) {
       return "Une vente a credit necessite un client identifie (RG-26).";
     }
-    if (discountRate >= DISCOUNT_APPROVAL_THRESHOLD && !canApproveDiscount) {
-      return `Une remise >= ${DISCOUNT_APPROVAL_THRESHOLD}% necessite l'accord d'un administrateur (RG-23).`;
+    if (discountRate < 0 || discountRate > 100) {
+      return "Le taux de remise doit être compris entre 0 et 100.";
     }
     return null;
   };
@@ -237,7 +230,6 @@ export default function POSPage() {
       customer_id: customerId || null,
       payment_type: paymentType,
       discount_rate: discountRate,
-      approved_by_id: discountRate >= DISCOUNT_APPROVAL_THRESHOLD ? user?.id ?? null : null,
       lines: cart.map((line) => ({ product_id: line.product.id, quantity: line.quantity })),
     };
 
@@ -268,7 +260,6 @@ export default function POSPage() {
       customer_id: customerId || null,
       payment_type: paymentType,
       discount_rate: discountRate,
-      approved_by_id: discountRate >= DISCOUNT_APPROVAL_THRESHOLD ? user?.id ?? null : null,
       lines,
       created_at_local: new Date().toISOString(),
       sync_status: "PENDING",
@@ -599,18 +590,16 @@ export default function POSPage() {
             </div>
 
             <div>
-              <label className="label">Remise</label>
-              <select
+              <label className="label">Remise (%)</label>
+              <input
+                type="number"
                 className="input"
+                min={0}
+                max={100}
+                step={1}
                 value={discountRate}
-                onChange={(e) => setDiscountRate(Number(e.target.value))}
-              >
-                {ALLOWED_DISCOUNT_RATES.map((rate) => (
-                  <option key={rate} value={rate} disabled={rate >= DISCOUNT_APPROVAL_THRESHOLD && !canApproveDiscount}>
-                    {rate}%{rate >= DISCOUNT_APPROVAL_THRESHOLD ? " (approbation requise)" : ""}
-                  </option>
-                ))}
-              </select>
+                onChange={(e) => setDiscountRate(Math.max(0, Math.min(100, Number(e.target.value))))}
+              />
             </div>
 
             <div>

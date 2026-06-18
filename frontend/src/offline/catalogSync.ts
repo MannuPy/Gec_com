@@ -5,7 +5,6 @@
  * - Catalogue produits + prix : synchronisation incrémentale via
  *   `GET /products?updated_since=...`.
  * - Stock de la boutique courante : `GET /stock?branch_id=...`.
- * - Taux de remise autorisés (RG-22) : `GET /sales/discounts/rates`.
  *
  * Le résultat est stocké dans IndexedDB (Dexie, cf. `offline/db.ts`) afin
  * d'être disponible pour la caisse (UC-11) lorsque le réseau est coupé.
@@ -13,7 +12,6 @@
 import { useEffect, useRef } from "react";
 
 import { productsApi } from "@/api/endpoints/products";
-import { salesApi } from "@/api/endpoints/sales";
 import { stockApi } from "@/api/endpoints/stock";
 import { db, type CachedProduct } from "@/offline/db";
 import { useOnlineStatus } from "@/offline/useOnlineStatus";
@@ -100,20 +98,6 @@ async function syncStock(branchId: string): Promise<void> {
   });
 }
 
-/** Met en cache les taux de remise autorisés (RG-22) et le seuil d'approbation (RG-23). */
-async function syncDiscountRates(): Promise<void> {
-  const rates = await salesApi.discountRates();
-
-  await db.discountRates.clear();
-  await db.discountRates.bulkAdd(
-    rates.allowed_rates.map((rate) => ({
-      id: `rate-${rate}`,
-      rate,
-      requires_approval: rate >= rates.approval_threshold,
-    }))
-  );
-}
-
 /**
  * Lance un cycle complet de synchronisation du catalogue. Ne fait rien si le
  * navigateur est hors-ligne. Les erreurs sont avalées : la synchronisation
@@ -134,12 +118,6 @@ export async function refreshCatalogCache(branchId?: string | null): Promise<voi
     } catch {
       // Réessai au prochain cycle.
     }
-  }
-
-  try {
-    await syncDiscountRates();
-  } catch {
-    // Réessai au prochain cycle.
   }
 }
 

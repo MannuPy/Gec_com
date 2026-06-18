@@ -75,7 +75,6 @@ class SaleCreateSchema(Schema):
     customer_id = fields.String(allow_none=True, load_default=None)
     payment_type = fields.String(load_default="CASH", validate=validate.OneOf(["CASH", "CREDIT"]))
     discount_rate = fields.Integer(load_default=0, validate=validate.Range(min=0, max=100))
-    approved_by_id = fields.String(allow_none=True, load_default=None)
     lines = fields.List(
         fields.Nested(SaleLineCreateSchema), required=True, validate=validate.Length(min=1)
     )
@@ -105,7 +104,6 @@ class SaleSyncItemSchema(Schema):
     customer_id = fields.String(allow_none=True, load_default=None)
     payment_type = fields.String(load_default="CASH", validate=validate.OneOf(["CASH", "CREDIT"]))
     discount_rate = fields.Integer(load_default=0, validate=validate.Range(min=0, max=100))
-    approved_by_id = fields.String(allow_none=True, load_default=None)
     # Horodatage du poste de caisse au moment de la saisie (RG-28/RG-30)
     created_at_local = fields.DateTime(allow_none=True, load_default=None)
     lines = fields.List(
@@ -174,8 +172,6 @@ class SaleSchema(Schema):
     status = fields.String()
     channel = fields.String()
     offline_uuid = fields.String(allow_none=True)
-    approved_by_id = fields.String(allow_none=True)
-    approved_by_name = fields.Method("get_approved_by_name")
     refund_of_sale_id = fields.String(allow_none=True)
     created_at = fields.DateTime()
     lines = fields.List(fields.Nested(SaleLineSchema))
@@ -188,6 +184,3 @@ class SaleSchema(Schema):
 
     def get_customer_name(self, obj):
         return obj.customer.full_name if obj.customer else None
-
-    def get_approved_by_name(self, obj):
-        return obj.approved_by.full_name if obj.approved_by else None

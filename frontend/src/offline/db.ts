@@ -31,16 +31,6 @@ export interface CachedProduct {
 }
 
 // ---------------------------------------------------------------------------
-// Taux de remise autorisés (RG-22), mis en cache (§26.7)
-// ---------------------------------------------------------------------------
-
-export interface CachedDiscountRate {
-  id: string;
-  rate: number;
-  requires_approval: boolean;
-}
-
-// ---------------------------------------------------------------------------
 // Ventes saisies hors-ligne (§26.4 à §26.6)
 // ---------------------------------------------------------------------------
 
@@ -59,7 +49,6 @@ export interface OfflineSale {
   customer_id: string | null;
   payment_type: "CASH" | "CREDIT";
   discount_rate: number;
-  approved_by_id: string | null;
   lines: OfflineSaleLine[];
   created_at_local: string; // horodatage poste de caisse (ISO 8601)
   sync_status: OfflineSaleSyncStatus;
@@ -74,14 +63,17 @@ export interface OfflineSale {
 
 export class GesComDB extends Dexie {
   products!: Table<CachedProduct, string>;
-  discountRates!: Table<CachedDiscountRate, string>;
   sales!: Table<OfflineSale, string>;
 
   constructor() {
     super("gescom_bf_offline");
     this.version(1).stores({
       products: "id, sku, barcode, name, updated_at",
-      discountRates: "id, rate",
+      sales: "offline_uuid, sync_status, created_at_local",
+    });
+    // v2 : suppression de la table discountRates (remises libres)
+    this.version(2).stores({
+      products: "id, sku, barcode, name, updated_at",
       sales: "offline_uuid, sync_status, created_at_local",
     });
   }

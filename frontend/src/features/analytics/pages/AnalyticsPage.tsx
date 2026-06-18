@@ -1,12 +1,25 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, Brain, Download, Loader2, RefreshCw } from "lucide-react";
 import {
-  AlertTriangle,
-  Brain,
-  Download,
-  Loader2,
-  RefreshCw,
-} from "lucide-react";
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+  ScatterChart,
+  Scatter,
+  XAxis,
+  YAxis,
+  ZAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts";
 
 import { analyticsApi } from "@/api/endpoints/analytics";
 import { productsApi } from "@/api/endpoints/products";
@@ -23,36 +36,58 @@ import {
 } from "@/types/analytics";
 import { formatCurrency, formatDateTime, formatNumber } from "@/utils/format";
 
+// ── Palette ──────────────────────────────────────────────────────────────────
+
+const C = {
+  primary:   "#2563EB",
+  secondary: "#10B981",
+  warning:   "#F59E0B",
+  danger:    "#EF4444",
+  muted:     "#94A3B8",
+  purple:    "#8B5CF6",
+  pink:      "#EC4899",
+  cyan:      "#06B6D4",
+  orange:    "#F97316",
+};
+
+const ABC_COLOR: Record<string, string>  = { A: C.primary, B: C.secondary, C: C.muted };
+const RISK_COLOR: Record<string, string> = { ELEVE: C.danger, MOYEN: C.warning, FAIBLE: C.secondary };
+const SEG_PALETTE = [C.primary, C.secondary, C.purple, C.warning, C.danger, C.cyan, C.pink, C.orange];
+
+// ── Onglets ──────────────────────────────────────────────────────────────────
+
 const TABS = [
-  { id: "dashboard", label: "Tableau de bord" },
-  { id: "forecast", label: "Prévisions de demande" },
-  { id: "abc-xyz", label: "ABC / XYZ" },
-  { id: "rfm", label: "Segmentation RFM" },
-  { id: "credit", label: "Scoring crédit" },
-  { id: "anomalies", label: "Anomalies" },
-  { id: "ml", label: "Modèles IA" },
+  { id: "dashboard", label: "Tableau de bord"     },
+  { id: "forecast",  label: "Prévisions de demande"},
+  { id: "abc-xyz",   label: "ABC / XYZ"            },
+  { id: "rfm",       label: "Segmentation RFM"     },
+  { id: "credit",    label: "Scoring crédit"       },
+  { id: "anomalies", label: "Anomalies"            },
+  { id: "ml",        label: "Modèles IA"           },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
 
 const RISK_BADGE: Record<CreditRiskLevel, string> = {
-  ELEVE: "badge-danger",
-  MOYEN: "badge-warning",
+  ELEVE:  "badge-danger",
+  MOYEN:  "badge-warning",
   FAIBLE: "badge-success",
 };
 
-const MODEL_TYPE_LABELS: Record<MlModelType, string> = {
-  DEMAND_FORECAST: "Prévision de la demande",
-  CREDIT_SCORING: "Scoring crédit",
+const MODEL_LABELS: Record<MlModelType, string> = {
+  DEMAND_FORECAST:   "Prévision de la demande",
+  CREDIT_SCORING:    "Scoring crédit",
   ANOMALY_DETECTION: "Détection d'anomalies",
-  ABC_XYZ: "Classification ABC/XYZ",
-  RFM_SEGMENTATION: "Segmentation RFM",
+  ABC_XYZ:           "Classification ABC/XYZ",
+  RFM_SEGMENTATION:  "Segmentation RFM",
 };
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
 function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
+  const url  = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.href = url;
+  link.href     = url;
   link.download = filename;
   document.body.appendChild(link);
   link.click();
@@ -60,79 +95,136 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+// ── Custom Recharts tooltips ──────────────────────────────────────────────────
+
+function CurrencyTip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border border-surface bg-white p-3 text-xs shadow-lg">
+      <p className="mb-1 font-semibold text-primary-dark">{label}</p>
+      {payload.map((p: any) => (
+        <p key={p.dataKey} style={{ color: p.color }}>
+          {p.name}: <strong>{formatCurrency(p.value)}</strong>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function TrendTip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border border-surface bg-white p-3 text-xs shadow-lg">
+      <p className="mb-1 font-semibold text-primary-dark">{label}</p>
+      {payload.map((p: any) => (
+        <p key={p.dataKey} style={{ color: p.color }}>
+          {p.name}:{" "}
+          <strong>
+            {p.dataKey === "sales_count" ? formatNumber(p.value) : formatCurrency(p.value)}
+          </strong>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function ScatterTip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload ?? {};
+  return (
+    <div className="rounded-lg border border-surface bg-white p-3 text-xs shadow-lg">
+      {d.name     && <p className="mb-1 font-semibold text-primary-dark">{d.name}</p>}
+      {d.x        !== undefined && <p>Récence : <strong>{formatNumber(d.x)} j</strong></p>}
+      {d.y        !== undefined && <p>Fréquence : <strong>{formatNumber(d.y)}</strong></p>}
+      {d.z        !== undefined && <p>Montant : <strong>{formatCurrency(d.z)}</strong></p>}
+      {d.remise   !== undefined && <p>Remise : <strong>{d.remise} %</strong></p>}
+      {d.score    !== undefined && <p>Score : <strong>{d.score.toFixed(2)}</strong></p>}
+      {d.cashier  && <p>Caissier : <strong>{d.cashier}</strong></p>}
+    </div>
+  );
+}
+
+// ── AnalyticsPage ─────────────────────────────────────────────────────────────
+
 /**
- * Tableau de bord analytique et intelligence artificielle (RF-24 à RF-29).
- * Cf. blueprint `analytics` : dashboard étendu, prévisions de demande,
- * scoring crédit, détection d'anomalies, classification ABC/XYZ,
- * segmentation RFM et registre des modèles ML.
+ * Tableau de bord analytique et IA (RF-24 à RF-29).
+ * Chaque onglet combine graphiques Recharts + tableau détaillé.
  */
 export default function AnalyticsPage() {
-  const user = useAuthStore((s) => s.user);
+  const user        = useAuthStore((s) => s.user);
   const hasPermission = useAuthStore((s) => s.hasPermission);
-  const canTrain = hasPermission("ml:train");
+  const canTrain    = hasPermission("ml:train");
   const queryClient = useQueryClient();
 
-  const [tab, setTab] = useState<TabId>("dashboard");
-  const [branchId, setBranchId] = useState(user?.branch_id ?? "");
-  const [days, setDays] = useState(30);
+  const [tab,        setTab]        = useState<TabId>("dashboard");
+  const [branchId,   setBranchId]   = useState(user?.branch_id ?? "");
+  const [days,       setDays]       = useState(30);
   const [alertsOnly, setAlertsOnly] = useState(false);
-  const [abcClass, setAbcClass] = useState("");
-  const [xyzClass, setXyzClass] = useState("");
-  const [riskLevel, setRiskLevel] = useState("");
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
+  const [abcClass,   setAbcClass]   = useState("");
+  const [xyzClass,   setXyzClass]   = useState("");
+  const [riskLevel,  setRiskLevel]  = useState("");
+  const [exporting,  setExporting]  = useState(false);
+  const [exportError,setExportError]= useState<string | null>(null);
+
+  // ── Queries ────────────────────────────────────────────────────────────────
 
   const branchesQuery = useQuery({
     queryKey: ["branches"],
-    queryFn: productsApi.branches,
-    enabled: !user?.branch_id,
+    queryFn:  productsApi.branches,
+    enabled:  !user?.branch_id,
+  });
+
+  const salesTrendQuery = useQuery({
+    queryKey: ["analytics-sales-trend", branchId, days],
+    queryFn:  () => analyticsApi.salesTrend({ branch_id: branchId || undefined, days }),
+    enabled:  tab === "dashboard",
   });
 
   const dashboardQuery = useQuery({
     queryKey: ["analytics-dashboard", branchId, days],
-    queryFn: () => analyticsApi.dashboard({ branch_id: branchId || undefined, days }),
-    enabled: tab === "dashboard",
+    queryFn:  () => analyticsApi.dashboard({ branch_id: branchId || undefined, days }),
+    enabled:  tab === "dashboard",
   });
 
   const forecastQuery = useQuery({
     queryKey: ["analytics-forecast", branchId, alertsOnly],
-    queryFn: () => analyticsApi.forecast({ branch_id: branchId || undefined, alerts_only: alertsOnly || undefined }),
-    enabled: tab === "forecast",
+    queryFn:  () => analyticsApi.forecast({ branch_id: branchId || undefined, alerts_only: alertsOnly || undefined }),
+    enabled:  tab === "forecast",
   });
 
   const abcXyzQuery = useQuery({
     queryKey: ["analytics-abc-xyz", abcClass, xyzClass],
-    queryFn: () => analyticsApi.abcXyz({ abc_class: abcClass || undefined, xyz_class: xyzClass || undefined }),
-    enabled: tab === "abc-xyz",
+    queryFn:  () => analyticsApi.abcXyz({ abc_class: abcClass || undefined, xyz_class: xyzClass || undefined }),
+    enabled:  tab === "abc-xyz",
   });
 
   const rfmQuery = useQuery({
     queryKey: ["analytics-rfm"],
-    queryFn: () => analyticsApi.rfmSegments(),
-    enabled: tab === "rfm",
+    queryFn:  () => analyticsApi.rfmSegments(),
+    enabled:  tab === "rfm",
   });
 
   const creditQuery = useQuery({
     queryKey: ["analytics-credit", riskLevel],
-    queryFn: () => analyticsApi.creditScores({ risk_level: riskLevel || undefined }),
-    enabled: tab === "credit",
+    queryFn:  () => analyticsApi.creditScores({ risk_level: riskLevel || undefined }),
+    enabled:  tab === "credit",
   });
 
   const anomaliesQuery = useQuery({
     queryKey: ["analytics-anomalies", branchId],
-    queryFn: () => analyticsApi.anomalies({ branch_id: branchId || undefined }),
-    enabled: tab === "anomalies",
+    queryFn:  () => analyticsApi.anomalies({ branch_id: branchId || undefined }),
+    enabled:  tab === "anomalies",
   });
 
   const mlModelsQuery = useQuery({
     queryKey: ["ml-models"],
-    queryFn: analyticsApi.mlModels,
-    enabled: tab === "ml",
+    queryFn:  analyticsApi.mlModels,
+    enabled:  tab === "ml",
   });
 
   const trainMutation = useMutation({
     mutationFn: (modelType: MlModelType) => analyticsApi.trainModel(modelType),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ml-models"] }),
+    onSuccess:  () => queryClient.invalidateQueries({ queryKey: ["ml-models"] }),
   });
 
   const handleExport = async () => {
@@ -148,6 +240,95 @@ export default function AnalyticsPage() {
     }
   };
 
+  // ── Données dérivées pour graphiques ──────────────────────────────────────
+
+  /** ABC : répartition CA par classe (Pie) */
+  const abcPieData = useMemo(() => {
+    const totals: Record<string, number> = { A: 0, B: 0, C: 0 };
+    abcXyzQuery.data?.items.forEach((i) => { totals[i.abc_class] += i.revenue; });
+    return Object.entries(totals)
+      .filter(([, v]) => v > 0)
+      .map(([abc, value]) => ({ name: `Classe ${abc}`, abc, value }));
+  }, [abcXyzQuery.data]);
+
+  /** ABC : nombre de produits par classe combinée (Bar) */
+  const abcCountData = useMemo(() => {
+    const counts: Record<string, number> = {};
+    abcXyzQuery.data?.items.forEach((i) => {
+      counts[i.combined_class] = (counts[i.combined_class] ?? 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count, abc: name[0] }))
+      .sort((a, b) => b.count - a.count);
+  }, [abcXyzQuery.data]);
+
+  /** RFM : Scatter groupé par segment */
+  const rfmScatterGroups = useMemo(() => {
+    const groups: Record<string, Array<{ x: number; y: number; z: number; name: string }>> = {};
+    rfmQuery.data?.items.forEach((i) => {
+      if (!groups[i.segment_label]) groups[i.segment_label] = [];
+      groups[i.segment_label].push({ x: i.recency_days, y: i.frequency, z: i.monetary, name: i.customer_name });
+    });
+    return Object.entries(groups).map(([seg, data], idx) => ({
+      seg,
+      data,
+      color: SEG_PALETTE[idx % SEG_PALETTE.length],
+    }));
+  }, [rfmQuery.data]);
+
+  /** RFM : count par segment (Bar horizontal) */
+  const rfmSegCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    rfmQuery.data?.items.forEach((i) => {
+      counts[i.segment_label] = (counts[i.segment_label] ?? 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [rfmQuery.data]);
+
+  /** Crédit : distribution par niveau de risque (Pie) */
+  const creditPieData = useMemo(() => {
+    const counts: Record<string, number> = { ELEVE: 0, MOYEN: 0, FAIBLE: 0 };
+    creditQuery.data?.items.forEach((i) => { counts[i.risk_level] += 1; });
+    const labels: Record<string, string> = { ELEVE: "Risque élevé", MOYEN: "Risque moyen", FAIBLE: "Faible risque" };
+    return Object.entries(counts)
+      .filter(([, v]) => v > 0)
+      .map(([key, value]) => ({ name: labels[key] ?? key, value, key }));
+  }, [creditQuery.data]);
+
+  /** Crédit : top 10 par score (Bar horizontal) */
+  const creditTopBar = useMemo(() =>
+    (creditQuery.data?.items ?? [])
+      .slice()
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10)
+      .map((i) => ({ name: i.customer_name, score: i.score, risk: i.risk_level })),
+  [creditQuery.data]);
+
+  /** Anomalies : scatter remise vs score */
+  const anomalyScatter = useMemo(() =>
+    (anomaliesQuery.data?.items ?? []).map((i) => ({
+      remise:  i.remise_taux,
+      score:   i.score,
+      montant: i.montant_total,
+      cashier: i.cashier_name,
+      name:    i.reference,
+    })),
+  [anomaliesQuery.data]);
+
+  /** Prévisions : top 12 produits pour bar chart */
+  const forecastBar = useMemo(() =>
+    (forecastQuery.data?.items ?? []).slice(0, 12).map((i) => ({
+      name:      i.product_name.length > 14 ? i.product_name.slice(0, 13) + "…" : i.product_name,
+      stock:     i.stock_disponible,
+      seuil:     i.seuil_min,
+      prevision: i.stock_prevu_j7,
+    })),
+  [forecastQuery.data]);
+
+  // ── JSX ───────────────────────────────────────────────────────────────────
+
   return (
     <div className="space-y-6">
       <div>
@@ -158,6 +339,8 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="card space-y-4">
+
+        {/* ── Navigation par onglets ── */}
         <div className="flex flex-wrap gap-2">
           {TABS.map((t) => (
             <button
@@ -171,14 +354,13 @@ export default function AnalyticsPage() {
           ))}
         </div>
 
+        {/* ── Filtres contextuels ── */}
         <div className="flex flex-wrap items-center gap-3">
           {!user?.branch_id && (tab === "dashboard" || tab === "forecast" || tab === "anomalies") && (
             <select className="input max-w-xs" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
               <option value="">Tous les sites</option>
-              {(branchesQuery.data ?? []).map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
+              {(branchesQuery.data ?? []).map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
               ))}
             </select>
           )}
@@ -208,19 +390,11 @@ export default function AnalyticsPage() {
             <>
               <select className="input max-w-[10rem]" value={abcClass} onChange={(e) => setAbcClass(e.target.value)}>
                 <option value="">Toutes classes ABC</option>
-                {ABC_CLASSES.map((c) => (
-                  <option key={c} value={c}>
-                    Classe {c}
-                  </option>
-                ))}
+                {ABC_CLASSES.map((c) => <option key={c} value={c}>Classe {c}</option>)}
               </select>
               <select className="input max-w-[10rem]" value={xyzClass} onChange={(e) => setXyzClass(e.target.value)}>
                 <option value="">Toutes classes XYZ</option>
-                {XYZ_CLASSES.map((c) => (
-                  <option key={c} value={c}>
-                    Classe {c}
-                  </option>
-                ))}
+                {XYZ_CLASSES.map((c) => <option key={c} value={c}>Classe {c}</option>)}
               </select>
             </>
           )}
@@ -228,60 +402,206 @@ export default function AnalyticsPage() {
           {tab === "credit" && (
             <select className="input max-w-[12rem]" value={riskLevel} onChange={(e) => setRiskLevel(e.target.value)}>
               <option value="">Tous les niveaux de risque</option>
-              {CREDIT_RISK_LEVELS.map((r) => (
-                <option key={r} value={r}>
-                  Risque {r.toLowerCase()}
-                </option>
-              ))}
+              {CREDIT_RISK_LEVELS.map((r) => <option key={r} value={r}>Risque {r.toLowerCase()}</option>)}
             </select>
           )}
         </div>
 
-        {exportError && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{exportError}</div>}
+        {exportError && (
+          <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{exportError}</div>
+        )}
 
-        {/* ---- Tableau de bord (RF-24) ---- */}
+        {/* ════════════════════════════════════
+            TABLEAU DE BORD (RF-24)
+        ════════════════════════════════════ */}
         {tab === "dashboard" && (
-          <QueryState query={dashboardQuery} errorMessage="Impossible de charger le tableau de bord analytique.">
-            {(data) => (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  <KpiCard label="Nombre de ventes" value={formatNumber(data.consolidated.sales_count)} />
-                  <KpiCard label="Chiffre d'affaires" value={formatCurrency(data.consolidated.revenue)} />
-                  <KpiCard label="Marge" value={formatCurrency(data.consolidated.margin)} />
-                  <KpiCard label="Taux de marge" value={`${data.consolidated.margin_rate_pct} %`} />
+          <div className="space-y-6">
+
+            {/* Tendance CA / Marge */}
+            <Section title={`Évolution du CA et de la marge — ${days} derniers jours`}>
+              {salesTrendQuery.isLoading && <ChartSkeleton />}
+              {salesTrendQuery.data?.items.length === 0 && (
+                <p className="py-10 text-center text-sm text-muted">Aucune vente sur la période.</p>
+              )}
+              {salesTrendQuery.data && salesTrendQuery.data.items.length > 0 && (
+                <ResponsiveContainer width="100%" height={280}>
+                  <AreaChart data={salesTrendQuery.data.items} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                    <defs>
+                      <linearGradient id="gCA" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor={C.primary}   stopOpacity={0.25} />
+                        <stop offset="95%" stopColor={C.primary}   stopOpacity={0}    />
+                      </linearGradient>
+                      <linearGradient id="gMarge" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%"  stopColor={C.secondary} stopOpacity={0.25} />
+                        <stop offset="95%" stopColor={C.secondary} stopOpacity={0}    />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                    <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(d: string) => d.slice(5)} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) =>
+                      v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M`
+                      : v >= 1_000 ? `${(v / 1_000).toFixed(0)}k`
+                      : String(v)
+                    } />
+                    <Tooltip content={<TrendTip />} />
+                    <Legend />
+                    <Area type="monotone" dataKey="revenue"     name="Chiffre d'affaires" stroke={C.primary}   fill="url(#gCA)"    strokeWidth={2} dot={false} />
+                    <Area type="monotone" dataKey="margin"      name="Marge"               stroke={C.secondary} fill="url(#gMarge)" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </Section>
+
+            {/* KPIs + Bar sites */}
+            <QueryState query={dashboardQuery} errorMessage="Impossible de charger le tableau de bord analytique.">
+              {(data) => (
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <KpiCard label="Nombre de ventes"  value={formatNumber(data.consolidated.sales_count)} />
+                    <KpiCard label="Chiffre d'affaires" value={formatCurrency(data.consolidated.revenue)}  />
+                    <KpiCard label="Marge brute"        value={formatCurrency(data.consolidated.margin)}   />
+                    <KpiCard label="Taux de marge"      value={`${data.consolidated.margin_rate_pct} %`} accent />
+                  </div>
+
+                  {data.branches.length > 1 && (
+                    <Section title="Comparaison des sites — CA et marge">
+                      <ResponsiveContainer width="100%" height={250}>
+                        <BarChart
+                          data={data.branches.map((b) => ({
+                            name:  b.branch_name,
+                            "CA":  Number(b.revenue),
+                            Marge: Number(b.margin),
+                          }))}
+                          margin={{ top: 5, right: 20, left: 10, bottom: 5 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} tickFormatter={(v: number) =>
+                            v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M`
+                            : v >= 1_000 ? `${(v / 1_000).toFixed(0)}k`
+                            : String(v)
+                          } />
+                          <Tooltip content={<CurrencyTip />} />
+                          <Legend />
+                          <Bar dataKey="CA"    fill={C.primary}   radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="Marge" fill={C.secondary} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </Section>
+                  )}
+
+                  <div>
+                    <h3 className="mb-2 text-sm font-semibold text-primary-dark">Détail par site</h3>
+                    <div className="overflow-x-auto">
+                      <table className="table-base">
+                        <thead>
+                          <tr>
+                            <th>Site</th>
+                            <th className="text-right">Nb ventes</th>
+                            <th className="text-right">Chiffre d'affaires</th>
+                            <th className="text-right">Coût</th>
+                            <th className="text-right">Marge</th>
+                            <th className="text-right">Taux de marge</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.branches.map((b) => (
+                            <tr key={b.branch_id}>
+                              <td className="font-medium text-primary-dark">{b.branch_name}</td>
+                              <td className="text-right">{formatNumber(b.sales_count)}</td>
+                              <td className="text-right">{formatCurrency(b.revenue)}</td>
+                              <td className="text-right">{formatCurrency(b.cost)}</td>
+                              <td className="text-right">{formatCurrency(b.margin)}</td>
+                              <td className="text-right">{b.margin_rate_pct} %</td>
+                            </tr>
+                          ))}
+                          <tr className="font-semibold">
+                            <td>TOTAL CONSOLIDÉ</td>
+                            <td className="text-right">{formatNumber(data.consolidated.sales_count)}</td>
+                            <td className="text-right">{formatCurrency(data.consolidated.revenue)}</td>
+                            <td className="text-right">{formatCurrency(data.consolidated.cost)}</td>
+                            <td className="text-right">{formatCurrency(data.consolidated.margin)}</td>
+                            <td className="text-right">{data.consolidated.margin_rate_pct} %</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
+              )}
+            </QueryState>
+          </div>
+        )}
+
+        {/* ════════════════════════════════════
+            PRÉVISIONS DE DEMANDE (RF-25)
+        ════════════════════════════════════ */}
+        {tab === "forecast" && (
+          <QueryState query={forecastQuery} errorMessage="Impossible de charger les prévisions de demande.">
+            {(data) => (
+              <div className="space-y-6">
+                {forecastBar.length > 0 && (
+                  <Section title="Stock disponible vs seuil minimum vs stock prévu J+7 (Top 12)">
+                    <ResponsiveContainer width="100%" height={300}>
+                      <BarChart data={forecastBar} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                        <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-30} textAnchor="end" interval={0} />
+                        <YAxis tick={{ fontSize: 11 }} />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="stock"     name="Stock disponible" fill={C.primary}   radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="seuil"     name="Seuil minimum"    fill={C.warning}   radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="prevision" name="Stock prévu J+7"  fill={C.secondary} radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </Section>
+                )}
+
+                {data.items.filter((i) => i.alerte_rupture).length > 0 && (
+                  <div className="flex items-center gap-2 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <strong>{data.items.filter((i) => i.alerte_rupture).length} produit(s)</strong>
+                    &nbsp;en risque de rupture dans les 7 prochains jours.
+                  </div>
+                )}
 
                 <div className="overflow-x-auto">
                   <table className="table-base">
                     <thead>
                       <tr>
-                        <th>Site</th>
-                        <th className="text-right">Nb ventes</th>
-                        <th className="text-right">Chiffre d'affaires</th>
-                        <th className="text-right">Coût</th>
-                        <th className="text-right">Marge</th>
-                        <th className="text-right">Taux de marge</th>
+                        <th>SKU</th>
+                        <th>Produit</th>
+                        <th className="text-right">Stock dispo</th>
+                        <th className="text-right">Seuil mini</th>
+                        <th className="text-right">Prév. 7j</th>
+                        <th className="text-right">Prév. 30j</th>
+                        <th className="text-right">Stock J+7</th>
+                        <th className="text-right">Qté recommandée</th>
+                        <th>Alerte</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {data.branches.map((b) => (
-                        <tr key={b.branch_id}>
-                          <td className="font-medium text-primary-dark">{b.branch_name}</td>
-                          <td className="text-right">{formatNumber(b.sales_count)}</td>
-                          <td className="text-right">{formatCurrency(b.revenue)}</td>
-                          <td className="text-right">{formatCurrency(b.cost)}</td>
-                          <td className="text-right">{formatCurrency(b.margin)}</td>
-                          <td className="text-right">{b.margin_rate_pct} %</td>
+                      {data.items.length === 0 && (
+                        <tr><td colSpan={9} className="text-center text-muted">Aucune prévision disponible.</td></tr>
+                      )}
+                      {data.items.map((item) => (
+                        <tr key={`${item.product_id}-${item.branch_id}`}>
+                          <td className="font-mono text-xs text-muted">{item.product_sku}</td>
+                          <td className="font-medium text-primary-dark">{item.product_name}</td>
+                          <td className="text-right">{formatNumber(item.stock_disponible)}</td>
+                          <td className="text-right">{formatNumber(item.seuil_min)}</td>
+                          <td className="text-right">{formatNumber(item.forecast_7d)}</td>
+                          <td className="text-right">{formatNumber(item.forecast_30d)}</td>
+                          <td className="text-right">{formatNumber(item.stock_prevu_j7)}</td>
+                          <td className="text-right">{formatNumber(item.quantite_recommandee)}</td>
+                          <td>
+                            {item.alerte_rupture
+                              ? <span className="badge badge-danger"><AlertTriangle className="mr-1 h-3 w-3" />Rupture</span>
+                              : <span className="badge badge-success">OK</span>
+                            }
+                          </td>
                         </tr>
                       ))}
-                      <tr className="font-semibold">
-                        <td>TOTAL CONSOLIDÉ</td>
-                        <td className="text-right">{formatNumber(data.consolidated.sales_count)}</td>
-                        <td className="text-right">{formatCurrency(data.consolidated.revenue)}</td>
-                        <td className="text-right">{formatCurrency(data.consolidated.cost)}</td>
-                        <td className="text-right">{formatCurrency(data.consolidated.margin)}</td>
-                        <td className="text-right">{data.consolidated.margin_rate_pct} %</td>
-                      </tr>
                     </tbody>
                   </table>
                 </div>
@@ -290,241 +610,374 @@ export default function AnalyticsPage() {
           </QueryState>
         )}
 
-        {/* ---- Prévisions de demande (RF-25, RG-38) ---- */}
-        {tab === "forecast" && (
-          <QueryState query={forecastQuery} errorMessage="Impossible de charger les prévisions de demande.">
-            {(data) => (
-              <div className="overflow-x-auto">
-                <table className="table-base">
-                  <thead>
-                    <tr>
-                      <th>SKU</th>
-                      <th>Produit</th>
-                      <th className="text-right">Stock disponible</th>
-                      <th className="text-right">Seuil mini</th>
-                      <th className="text-right">Prévision 7j</th>
-                      <th className="text-right">Prévision 30j</th>
-                      <th className="text-right">Stock prévu J+7</th>
-                      <th className="text-right">Qté recommandée</th>
-                      <th>Alerte</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.items.length === 0 && (
-                      <tr>
-                        <td colSpan={9} className="text-center text-muted">
-                          Aucune prévision disponible.
-                        </td>
-                      </tr>
-                    )}
-                    {data.items.map((item) => (
-                      <tr key={`${item.product_id}-${item.branch_id}`}>
-                        <td className="font-mono text-xs text-muted">{item.product_sku}</td>
-                        <td className="font-medium text-primary-dark">{item.product_name}</td>
-                        <td className="text-right">{formatNumber(item.stock_disponible)}</td>
-                        <td className="text-right">{formatNumber(item.seuil_min)}</td>
-                        <td className="text-right">{formatNumber(item.forecast_7d)}</td>
-                        <td className="text-right">{formatNumber(item.forecast_30d)}</td>
-                        <td className="text-right">{formatNumber(item.stock_prevu_j7)}</td>
-                        <td className="text-right">{formatNumber(item.quantite_recommandee)}</td>
-                        <td>
-                          {item.alerte_rupture ? (
-                            <span className="badge badge-danger">
-                              <AlertTriangle className="mr-1 h-3 w-3" />
-                              Rupture
-                            </span>
-                          ) : (
-                            <span className="badge badge-success">OK</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </QueryState>
-        )}
-
-        {/* ---- Classification ABC/XYZ (RF-26) ---- */}
+        {/* ════════════════════════════════════
+            ABC / XYZ (RF-26)
+        ════════════════════════════════════ */}
         {tab === "abc-xyz" && (
           <QueryState query={abcXyzQuery} errorMessage="Impossible de charger la classification ABC/XYZ.">
             {(data) => (
-              <div className="overflow-x-auto">
-                <table className="table-base">
-                  <thead>
-                    <tr>
-                      <th>SKU</th>
-                      <th>Produit</th>
-                      <th className="text-right">Chiffre d'affaires</th>
-                      <th>Classe ABC</th>
-                      <th className="text-right">Coefficient de variation</th>
-                      <th>Classe XYZ</th>
-                      <th>Classe combinée</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.items.length === 0 && (
-                      <tr>
-                        <td colSpan={7} className="text-center text-muted">
-                          Aucune donnée de classification disponible.
-                        </td>
-                      </tr>
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  {/* Pie : CA par classe ABC */}
+                  <Section title="Part du CA par classe ABC">
+                    {abcPieData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <PieChart>
+                          <Pie
+                            data={abcPieData}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%" cy="50%"
+                            outerRadius={90} innerRadius={45}
+                            label={({ name, percent }) => `${name} — ${(percent * 100).toFixed(1)} %`}
+                            labelLine={false}
+                          >
+                            {abcPieData.map((e) => <Cell key={e.abc} fill={ABC_COLOR[e.abc] ?? C.muted} />)}
+                          </Pie>
+                          <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="py-10 text-center text-sm text-muted">Aucune donnée.</p>
                     )}
-                    {data.items.map((item) => (
-                      <tr key={item.product_id}>
-                        <td className="font-mono text-xs text-muted">{item.product_sku}</td>
-                        <td className="font-medium text-primary-dark">{item.product_name}</td>
-                        <td className="text-right">{formatCurrency(item.revenue)}</td>
-                        <td>
-                          <span className="badge badge-info">{item.abc_class}</span>
-                        </td>
-                        <td className="text-right">{item.cv.toFixed(2)}</td>
-                        <td>
-                          <span className="badge badge-info">{item.xyz_class}</span>
-                        </td>
-                        <td className="font-semibold">{item.combined_class}</td>
+                  </Section>
+
+                  {/* Bar : produits par classe combinée */}
+                  <Section title="Nombre de produits par classe ABC × XYZ">
+                    {abcCountData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart data={abcCountData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                          <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <Tooltip formatter={(v: number) => [formatNumber(v), "Produits"]} />
+                          <Bar dataKey="count" name="Produits" radius={[4, 4, 0, 0]}>
+                            {abcCountData.map((e) => <Cell key={e.name} fill={ABC_COLOR[e.abc] ?? C.muted} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="py-10 text-center text-sm text-muted">Aucune donnée.</p>
+                    )}
+                  </Section>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="table-base">
+                    <thead>
+                      <tr>
+                        <th>SKU</th>
+                        <th>Produit</th>
+                        <th className="text-right">CA</th>
+                        <th>Classe ABC</th>
+                        <th className="text-right">Coeff. variation</th>
+                        <th>Classe XYZ</th>
+                        <th>Classe combinée</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {data.items.length === 0 && (
+                        <tr><td colSpan={7} className="text-center text-muted">Aucune donnée de classification disponible.</td></tr>
+                      )}
+                      {data.items.map((item) => (
+                        <tr key={item.product_id}>
+                          <td className="font-mono text-xs text-muted">{item.product_sku}</td>
+                          <td className="font-medium text-primary-dark">{item.product_name}</td>
+                          <td className="text-right">{formatCurrency(item.revenue)}</td>
+                          <td><span className="badge badge-info">{item.abc_class}</span></td>
+                          <td className="text-right">{item.cv.toFixed(2)}</td>
+                          <td><span className="badge badge-info">{item.xyz_class}</span></td>
+                          <td className="font-semibold">{item.combined_class}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </QueryState>
         )}
 
-        {/* ---- Segmentation RFM (RF-26) ---- */}
+        {/* ════════════════════════════════════
+            SEGMENTATION RFM (RF-26)
+        ════════════════════════════════════ */}
         {tab === "rfm" && (
           <QueryState query={rfmQuery} errorMessage="Impossible de charger la segmentation RFM.">
             {(data) => (
-              <div className="overflow-x-auto">
-                <table className="table-base">
-                  <thead>
-                    <tr>
-                      <th>Client</th>
-                      <th className="text-right">Récence (jours)</th>
-                      <th className="text-right">Fréquence</th>
-                      <th className="text-right">Valeur (montant)</th>
-                      <th>Segment</th>
-                      <th>Action recommandée</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.items.length === 0 && (
-                      <tr>
-                        <td colSpan={6} className="text-center text-muted">
-                          Aucun client segmenté.
-                        </td>
-                      </tr>
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  {/* Scatter : Récence × Fréquence (taille = Montant) */}
+                  <Section title="Nuage RFM — Récence vs Fréquence (taille ∝ Montant)">
+                    {rfmScatterGroups.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={280}>
+                        <ScatterChart margin={{ top: 10, right: 20, left: 0, bottom: 30 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                          <XAxis
+                            dataKey="x"
+                            name="Récence (j)"
+                            type="number"
+                            tick={{ fontSize: 11 }}
+                            label={{ value: "Récence (jours)", position: "insideBottom", offset: -18, fontSize: 11 }}
+                          />
+                          <YAxis
+                            dataKey="y"
+                            name="Fréquence"
+                            type="number"
+                            tick={{ fontSize: 11 }}
+                            label={{ value: "Fréquence", angle: -90, position: "insideLeft", fontSize: 11 }}
+                          />
+                          <ZAxis dataKey="z" name="Montant" range={[40, 400]} />
+                          <Tooltip content={<ScatterTip />} />
+                          <Legend />
+                          {rfmScatterGroups.map(({ seg, data: sdata, color }) => (
+                            <Scatter key={seg} name={seg} data={sdata} fill={color} fillOpacity={0.75} />
+                          ))}
+                        </ScatterChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="py-10 text-center text-sm text-muted">Aucun client segmenté.</p>
                     )}
-                    {data.items.map((item) => (
-                      <tr key={item.customer_id}>
-                        <td className="font-medium text-primary-dark">{item.customer_name}</td>
-                        <td className="text-right">{formatNumber(item.recency_days)}</td>
-                        <td className="text-right">{formatNumber(item.frequency)}</td>
-                        <td className="text-right">{formatCurrency(item.monetary)}</td>
-                        <td>
-                          <span className="badge badge-info">{item.segment_label}</span>
-                        </td>
-                        <td className="text-xs text-muted">{item.recommended_action}</td>
+                  </Section>
+
+                  {/* Bar : nombre de clients par segment */}
+                  <Section title="Distribution des segments clients">
+                    {rfmSegCounts.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={280}>
+                        <BarChart data={rfmSegCounts} layout="vertical" margin={{ top: 5, right: 20, left: 90, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={90} />
+                          <Tooltip formatter={(v: number) => [formatNumber(v), "Clients"]} />
+                          <Bar dataKey="count" name="Clients" radius={[0, 4, 4, 0]}>
+                            {rfmSegCounts.map((e, i) => (
+                              <Cell key={e.name} fill={SEG_PALETTE[i % SEG_PALETTE.length]} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="py-10 text-center text-sm text-muted">Aucune donnée.</p>
+                    )}
+                  </Section>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="table-base">
+                    <thead>
+                      <tr>
+                        <th>Client</th>
+                        <th className="text-right">Récence (j)</th>
+                        <th className="text-right">Fréquence</th>
+                        <th className="text-right">Valeur</th>
+                        <th>Segment</th>
+                        <th>Action recommandée</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {data.items.length === 0 && (
+                        <tr><td colSpan={6} className="text-center text-muted">Aucun client segmenté.</td></tr>
+                      )}
+                      {data.items.map((item) => (
+                        <tr key={item.customer_id}>
+                          <td className="font-medium text-primary-dark">{item.customer_name}</td>
+                          <td className="text-right">{formatNumber(item.recency_days)}</td>
+                          <td className="text-right">{formatNumber(item.frequency)}</td>
+                          <td className="text-right">{formatCurrency(item.monetary)}</td>
+                          <td><span className="badge badge-info">{item.segment_label}</span></td>
+                          <td className="text-xs text-muted">{item.recommended_action}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </QueryState>
         )}
 
-        {/* ---- Scoring crédit (RF-27) ---- */}
+        {/* ════════════════════════════════════
+            SCORING CRÉDIT (RF-27)
+        ════════════════════════════════════ */}
         {tab === "credit" && (
           <QueryState query={creditQuery} errorMessage="Impossible de charger le scoring crédit.">
             {(data) => (
-              <div className="overflow-x-auto">
-                <table className="table-base">
-                  <thead>
-                    <tr>
-                      <th>Client</th>
-                      <th className="text-right">Score</th>
-                      <th>Niveau de risque</th>
-                      <th className="text-right">Achats à crédit</th>
-                      <th className="text-right">Montant moyen</th>
-                      <th className="text-right">Délai moyen (j)</th>
-                      <th className="text-right">Taux de retard</th>
-                      <th className="text-right">Solde dû</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.items.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="text-center text-muted">
-                          Aucun score crédit disponible.
-                        </td>
-                      </tr>
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                  {/* Pie : distribution risque */}
+                  <Section title="Distribution du risque crédit">
+                    {creditPieData.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <PieChart>
+                          <Pie
+                            data={creditPieData}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%" cy="50%"
+                            outerRadius={90} innerRadius={45}
+                            label={({ name, percent }) => `${name} — ${(percent * 100).toFixed(0)} %`}
+                            labelLine={false}
+                          >
+                            {creditPieData.map((e) => <Cell key={e.key} fill={RISK_COLOR[e.key] ?? C.muted} />)}
+                          </Pie>
+                          <Tooltip formatter={(v: number) => [formatNumber(v), "Clients"]} />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="py-10 text-center text-sm text-muted">Aucune donnée.</p>
                     )}
-                    {data.items.map((item) => (
-                      <tr key={item.customer_id}>
-                        <td className="font-medium text-primary-dark">{item.customer_name}</td>
-                        <td className="text-right">{item.score}</td>
-                        <td>
-                          <span className={`badge ${RISK_BADGE[item.risk_level]}`}>{item.risk_level}</span>
-                        </td>
-                        <td className="text-right">{formatNumber(item.nb_achats_credit_total)}</td>
-                        <td className="text-right">{formatCurrency(item.montant_moyen_achat)}</td>
-                        <td className="text-right">{item.delai_moyen_remboursement_jours}</td>
-                        <td className="text-right">{(item.taux_retard * 100).toFixed(1)} %</td>
-                        <td className="text-right">{formatCurrency(item.solde_du_actuel)}</td>
+                  </Section>
+
+                  {/* Bar horizontal : Top 10 scores */}
+                  <Section title="Top 10 clients par score crédit">
+                    {creditTopBar.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={260}>
+                        <BarChart data={creditTopBar} layout="vertical" margin={{ top: 5, right: 20, left: 90, bottom: 5 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                          <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
+                          <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={90} />
+                          <Tooltip formatter={(v: number) => [formatNumber(v), "Score"]} />
+                          <ReferenceLine x={70} stroke={C.secondary} strokeDasharray="4 4" />
+                          <ReferenceLine x={40} stroke={C.danger}    strokeDasharray="4 4" />
+                          <Bar dataKey="score" name="Score crédit" radius={[0, 4, 4, 0]}>
+                            {creditTopBar.map((e) => (
+                              <Cell key={e.name} fill={RISK_COLOR[e.risk] ?? C.muted} />
+                            ))}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="py-10 text-center text-sm text-muted">Aucune donnée.</p>
+                    )}
+                  </Section>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="table-base">
+                    <thead>
+                      <tr>
+                        <th>Client</th>
+                        <th className="text-right">Score</th>
+                        <th>Niveau de risque</th>
+                        <th className="text-right">Achats à crédit</th>
+                        <th className="text-right">Montant moyen</th>
+                        <th className="text-right">Délai moyen (j)</th>
+                        <th className="text-right">Taux de retard</th>
+                        <th className="text-right">Solde dû</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {data.items.length === 0 && (
+                        <tr><td colSpan={8} className="text-center text-muted">Aucun score crédit disponible.</td></tr>
+                      )}
+                      {data.items.map((item) => (
+                        <tr key={item.customer_id}>
+                          <td className="font-medium text-primary-dark">{item.customer_name}</td>
+                          <td className="text-right">{item.score}</td>
+                          <td><span className={`badge ${RISK_BADGE[item.risk_level]}`}>{item.risk_level}</span></td>
+                          <td className="text-right">{formatNumber(item.nb_achats_credit_total)}</td>
+                          <td className="text-right">{formatCurrency(item.montant_moyen_achat)}</td>
+                          <td className="text-right">{item.delai_moyen_remboursement_jours}</td>
+                          <td className="text-right">{(item.taux_retard * 100).toFixed(1)} %</td>
+                          <td className="text-right">{formatCurrency(item.solde_du_actuel)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </QueryState>
         )}
 
-        {/* ---- Détection d'anomalies (RF-28) ---- */}
+        {/* ════════════════════════════════════
+            ANOMALIES (RF-28)
+        ════════════════════════════════════ */}
         {tab === "anomalies" && (
           <QueryState query={anomaliesQuery} errorMessage="Impossible de charger les anomalies.">
             {(data) => (
-              <div className="overflow-x-auto">
-                <table className="table-base">
-                  <thead>
-                    <tr>
-                      <th>Référence</th>
-                      <th>Caissier</th>
-                      <th className="text-right">Montant total</th>
-                      <th className="text-right">Remise</th>
-                      <th className="text-right">Score d'anomalie</th>
-                      <th>Motifs</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.items.length === 0 && (
+              <div className="space-y-6">
+                <Section title="Score d'anomalie vs taux de remise (chaque point = une vente, taille ∝ montant)">
+                  {anomalyScatter.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={280}>
+                      <ScatterChart margin={{ top: 10, right: 20, left: 0, bottom: 30 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                        <XAxis
+                          dataKey="remise"
+                          name="Remise (%)"
+                          type="number"
+                          domain={[0, 100]}
+                          tick={{ fontSize: 11 }}
+                          label={{ value: "Taux de remise (%)", position: "insideBottom", offset: -18, fontSize: 11 }}
+                        />
+                        <YAxis
+                          dataKey="score"
+                          name="Score anomalie"
+                          type="number"
+                          tick={{ fontSize: 11 }}
+                          label={{ value: "Score anomalie", angle: -90, position: "insideLeft", fontSize: 11 }}
+                        />
+                        <ZAxis dataKey="montant" name="Montant" range={[30, 250]} />
+                        <Tooltip content={<ScatterTip />} />
+                        <ReferenceLine
+                          y={0.5}
+                          stroke={C.warning}
+                          strokeDasharray="4 4"
+                          label={{ value: "Seuil alerte", fontSize: 10, fill: C.warning, position: "right" }}
+                        />
+                        <Scatter name="Ventes" data={anomalyScatter} fill={C.danger} fillOpacity={0.65} />
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <p className="py-10 text-center text-sm text-muted">Aucune anomalie détectée.</p>
+                  )}
+                </Section>
+
+                {data.items.length > 0 && (
+                  <div className="flex items-center gap-2 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                    <AlertTriangle className="h-4 w-4 shrink-0" />
+                    <strong>{data.items.length} vente(s)</strong>&nbsp;signalée(s) comme anomalie. Analysez les motifs avant toute décision.
+                  </div>
+                )}
+
+                <div className="overflow-x-auto">
+                  <table className="table-base">
+                    <thead>
                       <tr>
-                        <td colSpan={6} className="text-center text-muted">
-                          Aucune anomalie détectée.
-                        </td>
+                        <th>Référence</th>
+                        <th>Caissier</th>
+                        <th className="text-right">Montant total</th>
+                        <th className="text-right">Remise</th>
+                        <th className="text-right">Score</th>
+                        <th>Motifs</th>
                       </tr>
-                    )}
-                    {data.items.map((item) => (
-                      <tr key={item.sale_id}>
-                        <td className="font-mono text-xs text-muted">{item.reference}</td>
-                        <td>{item.cashier_name}</td>
-                        <td className="text-right">{formatCurrency(item.montant_total)}</td>
-                        <td className="text-right">{item.remise_taux} %</td>
-                        <td className="text-right font-semibold text-amber-600">{item.score.toFixed(2)}</td>
-                        <td className="text-xs text-muted">{item.reasons.join(", ")}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {data.items.length === 0 && (
+                        <tr><td colSpan={6} className="text-center text-muted">Aucune anomalie détectée.</td></tr>
+                      )}
+                      {data.items.map((item) => (
+                        <tr key={item.sale_id}>
+                          <td className="font-mono text-xs text-muted">{item.reference}</td>
+                          <td>{item.cashier_name}</td>
+                          <td className="text-right">{formatCurrency(item.montant_total)}</td>
+                          <td className="text-right">{item.remise_taux} %</td>
+                          <td className="text-right font-semibold text-amber-600">{item.score.toFixed(2)}</td>
+                          <td className="text-xs text-muted">{item.reasons.join(", ")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </QueryState>
         )}
 
-        {/* ---- Registre des modèles ML + entraînement (RF-29) ---- */}
+        {/* ════════════════════════════════════
+            MODÈLES IA (RF-29)
+        ════════════════════════════════════ */}
         {tab === "ml" && (
           <div className="space-y-4">
             <div className="flex flex-wrap gap-2">
@@ -537,12 +990,11 @@ export default function AnalyticsPage() {
                   title={!canTrain ? "Permission ml:train requise" : undefined}
                   onClick={() => trainMutation.mutate(modelType)}
                 >
-                  {trainMutation.isPending && trainMutation.variables === modelType ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Brain className="h-4 w-4" />
-                  )}
-                  Entraîner : {MODEL_TYPE_LABELS[modelType]}
+                  {trainMutation.isPending && trainMutation.variables === modelType
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Brain className="h-4 w-4" />
+                  }
+                  Entraîner : {MODEL_LABELS[modelType]}
                 </button>
               ))}
               <button
@@ -560,10 +1012,9 @@ export default function AnalyticsPage() {
                 {getApiErrorMessage(trainMutation.error, "Impossible de lancer l'entraînement.")}
               </div>
             )}
-
             {trainMutation.isSuccess && (
               <div className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700">
-                Entraînement « {MODEL_TYPE_LABELS[trainMutation.data.model_type as MlModelType] ?? trainMutation.data.model_type} »
+                Entraînement « {MODEL_LABELS[trainMutation.data.model_type as MlModelType] ?? trainMutation.data.model_type} »
                 {trainMutation.data.status === "queued" ? " planifié." : " terminé."}
               </div>
             )}
@@ -584,26 +1035,21 @@ export default function AnalyticsPage() {
                     </thead>
                     <tbody>
                       {models.length === 0 && (
-                        <tr>
-                          <td colSpan={6} className="text-center text-muted">
-                            Aucun modèle entraîné pour le moment.
-                          </td>
-                        </tr>
+                        <tr><td colSpan={6} className="text-center text-muted">Aucun modèle entraîné pour le moment.</td></tr>
                       )}
                       {models.map((model) => (
                         <tr key={model.id}>
                           <td className="font-medium text-primary-dark">
-                            {MODEL_TYPE_LABELS[model.model_type as MlModelType] ?? model.model_type}
+                            {MODEL_LABELS[model.model_type as MlModelType] ?? model.model_type}
                           </td>
                           <td>{model.version}</td>
                           <td>{model.algorithm}</td>
                           <td className="whitespace-nowrap text-xs text-muted">{formatDateTime(model.trained_at)}</td>
                           <td>
-                            {model.is_active ? (
-                              <span className="badge badge-success">Actif</span>
-                            ) : (
-                              <span className="badge badge-warning">Inactif</span>
-                            )}
+                            {model.is_active
+                              ? <span className="badge badge-success">Actif</span>
+                              : <span className="badge badge-warning">Inactif</span>
+                            }
                           </td>
                           <td className="font-mono text-xs text-muted">{model.mlflow_run_id ?? "-"}</td>
                         </tr>
@@ -615,27 +1061,43 @@ export default function AnalyticsPage() {
             </QueryState>
           </div>
         )}
+
       </div>
     </div>
   );
 }
 
-function KpiCard({ label, value }: { label: string; value: string }) {
+// ── Sous-composants ───────────────────────────────────────────────────────────
+
+function KpiCard({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className="card">
+    <div className={`card ${accent ? "border-l-4 border-l-primary" : ""}`}>
       <p className="text-xs text-muted">{label}</p>
       <p className="text-lg font-semibold text-primary-dark">{value}</p>
     </div>
   );
 }
 
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h3 className="mb-3 text-sm font-semibold text-primary-dark">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function ChartSkeleton() {
+  return (
+    <div className="flex h-[260px] items-center justify-center gap-2 text-muted">
+      <Loader2 className="h-5 w-5 animate-spin" />
+      <span className="text-sm">Chargement du graphique…</span>
+    </div>
+  );
+}
+
 interface QueryStateProps<T> {
-  query: {
-    isLoading: boolean;
-    isError: boolean;
-    error: unknown;
-    data: T | undefined;
-  };
+  query: { isLoading: boolean; isError: boolean; error: unknown; data: T | undefined };
   errorMessage: string;
   children: (data: T) => React.ReactNode;
 }
@@ -649,12 +1111,13 @@ function QueryState<T>({ query, errorMessage, children }: QueryStateProps<T>) {
       </div>
     );
   }
-
   if (query.isError) {
-    return <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{getApiErrorMessage(query.error, errorMessage)}</div>;
+    return (
+      <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+        {getApiErrorMessage(query.error, errorMessage)}
+      </div>
+    );
   }
-
   if (!query.data) return null;
-
   return <>{children(query.data)}</>;
 }

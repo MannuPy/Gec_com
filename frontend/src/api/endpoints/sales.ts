@@ -1,7 +1,6 @@
 import { apiClient } from "@/api/client";
 import type { Paginated } from "@/types/api";
 import type {
-  DiscountRatesResponse,
   RefundCreatePayload,
   Sale,
   SaleCreatePayload,
@@ -25,13 +24,6 @@ export const salesApi = {
   /** RF-19 : recu de vente au format PDF (ticket 80mm). */
   receiptPdf: (id: string) =>
     apiClient.get<Blob>(`/sales/${id}/receipt`, { responseType: "blob" }).then((r) => r.data),
-
-  /**
-   * Taux de remise autorisés (RG-22) + seuil d'approbation (RG-23).
-   * Mis en cache côté client pour le mode hors-ligne (cf. 26-GESTION-OFFLINE-PWA.md §26.7).
-   */
-  discountRates: () =>
-    apiClient.get<DiscountRatesResponse>("/sales/discounts/rates").then((r) => r.data),
 
   /** Synchronisation différée des ventes saisies hors-ligne (RF-20, RG-28 à RG-30). */
   sync: (sales: SaleSyncItemPayload[]) =>

@@ -1,16 +1,19 @@
 /**
- * Synchronisation différée des ventes saisies hors-ligne (RF-20, RG-28 à
+ * Synchronisation automatique des ventes saisies hors-ligne (RF-20, RG-28 à
  * RG-30, cf. docs/26-GESTION-OFFLINE-PWA.md §26.5/§26.6).
+ *
+ * La synchronisation se déclenche automatiquement :
+ *  - au retour de connexion réseau (événement `online`) ;
+ *  - au focus de l'onglet (`window.focus`) ;
+ *  - à intervalle régulier (1 min) pendant la session.
  *
  * Cycle :
  *  1. Récupère les ventes locales `sync_status = PENDING` ;
  *  2. Les envoie par lot à `POST /sales/sync` ;
  *  3. Met à jour `sync_status` selon la réponse du serveur :
- *     - VALIDEE / DEJA_SYNCHRONISE        -> SYNCED
- *     - EN_ATTENTE_APPROBATION            -> SYNCED (message conservé,
- *       régularisation a posteriori par l'admin, hors périmètre client)
- *     - EN_CONFLIT                        -> CONFLICT (régularisation admin)
- *     - ERREUR / échec réseau             -> reste PENDING (nouvel essai)
+ *     - VALIDEE / DEJA_SYNCHRONISE -> SYNCED
+ *     - EN_CONFLIT                 -> CONFLICT (conflit de stock)
+ *     - ERREUR / échec réseau      -> reste PENDING (nouvel essai)
  *
  * Aucune vente n'est jamais supprimée localement avant confirmation
  * explicite (`SYNCED`/`CONFLICT`) — cf. principe directeur §26.6.
@@ -51,7 +54,6 @@ export async function syncPendingSales(): Promise<void> {
       customer_id: sale.customer_id,
       payment_type: sale.payment_type,
       discount_rate: sale.discount_rate,
-      approved_by_id: sale.approved_by_id,
       created_at_local: sale.created_at_local,
       lines: sale.lines.map((line) => ({
         product_id: line.product_id,
@@ -66,7 +68,6 @@ export async function syncPendingSales(): Promise<void> {
       switch (result.status) {
         case "VALIDEE":
         case "DEJA_SYNCHRONISE":
-        case "EN_ATTENTE_APPROBATION":
           syncStatus = "SYNCED";
           break;
         case "EN_CONFLIT":
@@ -96,8 +97,8 @@ export async function syncPendingSales(): Promise<void> {
 }
 
 /**
- * Déclenche la synchronisation au retour réseau, au focus de l'application
- * (fallback à la Background Sync API, cf. §26.3) et à intervalle régulier.
+ * Déclenche la synchronisation automatiquement au retour réseau, au focus
+ * de l'application et à intervalle régulier (§26.3/§26.5).
  */
 export function useSyncOfflineSales(): void {
   const isOnline = useOnlineStatus();
@@ -126,14 +127,13 @@ export function useSyncOfflineSales(): void {
 export interface PendingSyncCounts {
   /** Ventes en attente d'envoi ou en cours d'envoi. */
   pending: number;
-  /** Ventes synchronisées mais nécessitant une vérification admin (§26.6/§26.8). */
+  /** Ventes synchronisées mais en conflit de stock (§26.6/§26.8). */
   conflicts: number;
 }
 
 /**
  * Compte les ventes locales en attente de synchronisation et en conflit,
- * pour affichage des badges/bannières (§26.8). Rafraîchi périodiquement car
- * Dexie ne fournit pas nativement de souscription réactive dans ce projet.
+ * pour affichage des badges/bannières (§26.8).
  */
 export function usePendingSyncCounts(): PendingSyncCounts {
   const [counts, setCounts] = useState<PendingSyncCounts>({ pending: 0, conflicts: 0 });

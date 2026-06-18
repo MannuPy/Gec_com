@@ -8,8 +8,6 @@ from collections import defaultdict
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
-from flask import current_app
-
 from app.extensions import db
 from app.models import (
     AuditLog,
@@ -23,11 +21,10 @@ from app.models import (
     SaleStatus,
     Stock,
     StockMovementType,
-    User,
 )
 from app.services.reference_service import generate_reference
 from app.services.stock_service import apply_stock_movement
-from app.utils.errors import ApiError, forbidden, not_found, validation_error
+from app.utils.errors import ApiError, not_found, validation_error
 
 TWO_PLACES = Decimal("0.01")
 
@@ -39,19 +36,16 @@ def _round_money(value: Decimal) -> Decimal:
 def create_sale(payload: dict, cashier_id: str) -> Sale:
     """Crée et valide une vente (UC-11/UC-12).
 
-    Étapes : tarification (RG-21), contrôle de la remise (RG-22/RG-23),
+    Étapes : tarification (RG-21), validation de la remise (0-100 %),
     vérification du stock (RG-24), calcul du total (RG-25), gestion du
     crédit client (RG-26). La vente créée a le statut `VALIDEE` et est
     immuable (RG-27) : seul un avoir (cf. `create_refund`) peut la corriger.
     """
-    allowed_rates = current_app.config["ALLOWED_DISCOUNT_RATES"]
-    approval_threshold = current_app.config["DISCOUNT_APPROVAL_THRESHOLD"]
-
     discount_rate = payload["discount_rate"]
-    if discount_rate not in allowed_rates:
+    if not (0 <= discount_rate <= 100):
         raise validation_error(
-            f"Le taux de remise doit être l'un des suivants : {allowed_rates} (RG-22).",
-            details={"discount_rate": payload["discount_rate"]},
+            "Le taux de remise doit être compris entre 0 et 100.",
+            details={"discount_rate": discount_rate},
         )
 
     branch_id = payload["branch_id"]
@@ -69,25 +63,6 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
             "Une vente à crédit nécessite un client identifié (RG-26).",
             details={"customer_id": "requis lorsque payment_type = CREDIT"},
         )
-
-    # ---- RG-23 : remise >= seuil -> approbation obligatoire ----
-    approved_by = None
-    if discount_rate >= approval_threshold:
-        if not payload.get("approved_by_id"):
-            raise validation_error(
-                f"Une remise >= {approval_threshold}% nécessite l'accord d'un administrateur (RG-23).",
-                details={"approved_by_id": "requis pour ce taux de remise"},
-            )
-        approved_by = User.query.get(payload["approved_by_id"])
-        if approved_by is None:
-            raise not_found("Approbateur", payload["approved_by_id"])
-        if approved_by.role.name != "ADMIN" and "sales:approve_discount" not in approved_by.role.permission_codes():
-            raise forbidden(
-                "L'utilisateur référencé comme approbateur n'a pas les droits suffisants (RG-23)."
-            )
-    elif discount_rate > 0 and payload.get("approved_by_id"):
-        # Une remise plus faible peut tout de même être tracée si un accord est renseigné.
-        approved_by = User.query.get(payload["approved_by_id"])
 
     # ---- RG-21 : tarification selon le type de client ----
     price_type = customer.customer_type if customer else CustomerType.SIMPLE.value
@@ -150,7 +125,6 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
         total=total,
         payment_type=payment_type,
         status=SaleStatus.VALIDEE.value,
-        approved_by_id=approved_by.id if approved_by else None,
     )
     sale.lines = sale_lines
     db.session.add(sale)
@@ -182,23 +156,9 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
         metadata={
             "branch_id": branch_id,
             "discount_rate": discount_rate,
-            "approved_by_id": approved_by.id if approved_by else None,
             "payment_type": payment_type,
         },
     )
-
-    if discount_rate >= approval_threshold:
-        AuditLog.record(
-            event_type="SALE_DISCOUNT_APPROVED",
-            user_id=cashier_id,
-            entity_type="Sale",
-            entity_id=sale.id,
-            description=(
-                f"Remise de {discount_rate}% appliquée sur la vente {sale.reference}, "
-                f"approuvée par {approved_by.full_name}"
-            ),
-            metadata={"approved_by_id": approved_by.id, "discount_rate": discount_rate},
-        )
 
     db.session.commit()
     return sale
@@ -318,7 +278,7 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
       vente n'est rejetée silencieusement.
     - Si une remise >= seuil (RG-23) ne peut être validée (approbateur absent
       ou invalide au moment de la synchronisation), la vente est enregistrée
-      avec le statut `EN_ATTENTE_APPROBATION` pour validation a posteriori.
+      uniquement les conflits de stock réels (RG-29/RG-30).
     """
     offline_uuid = item["offline_uuid"]
 
@@ -332,19 +292,14 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
             "message": "Cette vente a déjà été synchronisée précédemment (idempotence RG-28).",
         }
 
-    allowed_rates = current_app.config["ALLOWED_DISCOUNT_RATES"]
-    approval_threshold = current_app.config["DISCOUNT_APPROVAL_THRESHOLD"]
-
     branch_id = item["branch_id"]
     payment_type = item["payment_type"]
     discount_rate = item["discount_rate"]
     notes: list[str] = []
 
-    # ---- RG-22 : taux de remise autorisé (revalidation serveur) ----
-    if discount_rate not in allowed_rates:
-        notes.append(
-            f"Taux de remise {discount_rate}% non autorisé (RG-22), ramené à 0%."
-        )
+    # Remise libre 0-100 % — revalidation serveur (plage sécurisée)
+    if not (0 <= discount_rate <= 100):
+        notes.append(f"Taux de remise {discount_rate}% hors plage, ramené à 0%.")
         discount_rate = 0
 
     # ---- RG-26 : client requis pour une vente à crédit ----
@@ -357,24 +312,6 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
     if payment_type == PaymentType.CREDIT.value and customer is None:
         notes.append("Vente à crédit sans client identifié (RG-26), repassée en CASH.")
         payment_type = PaymentType.CASH.value
-
-    # ---- RG-23 : remise >= seuil -> approbation obligatoire ----
-    approved_by = None
-    needs_approval = False
-    if discount_rate >= approval_threshold:
-        approved_by_id = item.get("approved_by_id")
-        candidate = User.query.get(approved_by_id) if approved_by_id else None
-        if candidate is not None and (
-            candidate.role.name == "ADMIN"
-            or "sales:approve_discount" in candidate.role.permission_codes()
-        ):
-            approved_by = candidate
-        else:
-            needs_approval = True
-            notes.append(
-                f"Remise de {discount_rate}% sans approbateur valide (RG-23) : "
-                "vente en attente d'approbation."
-            )
 
     # ---- RG-21 : tarification serveur (le client n'envoie jamais de prix) ----
     price_type = customer.customer_type if customer else CustomerType.SIMPLE.value
@@ -434,8 +371,6 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
             "Stock insuffisant au moment de la synchronisation (RG-29) : vente "
             "enregistrée en conflit, stock mis en négatif contrôlé (RG-30)."
         )
-    elif needs_approval:
-        status = SaleStatus.EN_ATTENTE_APPROBATION.value
     else:
         status = SaleStatus.VALIDEE.value
 
@@ -453,7 +388,6 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
         total=total,
         payment_type=payment_type,
         status=status,
-        approved_by_id=approved_by.id if approved_by else None,
         offline_uuid=offline_uuid,
         channel=SaleChannel.OFFLINE.value,
         created_at=created_at,
@@ -508,18 +442,6 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
                 "(RG-29) : régularisation manuelle requise."
             ),
             metadata={"offline_uuid": offline_uuid, "branch_id": branch_id},
-        )
-    elif status == SaleStatus.EN_ATTENTE_APPROBATION.value:
-        AuditLog.record(
-            event_type="SALE_SYNC_PENDING_APPROVAL",
-            user_id=cashier_id,
-            entity_type="Sale",
-            entity_id=sale.id,
-            description=(
-                f"Vente hors-ligne {sale.reference} en attente d'approbation "
-                f"de remise (RG-23)."
-            ),
-            metadata={"offline_uuid": offline_uuid, "discount_rate": discount_rate},
         )
 
     db.session.commit()

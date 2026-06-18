@@ -16,9 +16,16 @@ import type {
   MlTrainResult,
   RfmSegmentItem,
   RfmSegmentParams,
+  SalesTrendItem,
 } from "@/types/analytics";
 
 export const analyticsApi = {
+  /** RF-24 : tendance des ventes jour par jour (séries temporelles pour graphiques). */
+  salesTrend: (params: AdvancedDashboardParams = {}) =>
+    apiClient
+      .get<AnalyticsItemsResponse<SalesTrendItem>>("/analytics/sales-trend", { params })
+      .then((r) => r.data),
+
   /** RF-24 : tableau de bord étendu (marges, multi-site, consolidé). */
   dashboard: (params: AdvancedDashboardParams = {}) =>
     apiClient.get<AdvancedDashboard>("/analytics/dashboard", { params }).then((r) => r.data),

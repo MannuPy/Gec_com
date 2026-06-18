@@ -5,6 +5,17 @@
  */
 
 // ---------------------------------------------------------------------------
+// RF-24 : tendance des ventes (séries temporelles)
+// ---------------------------------------------------------------------------
+
+export interface SalesTrendItem {
+  date: string;       // "YYYY-MM-DD"
+  revenue: number;
+  sales_count: number;
+  margin: number;
+}
+
+// ---------------------------------------------------------------------------
 // RF-24 : tableau de bord étendu (marges, multi-site, consolidé)
 // ---------------------------------------------------------------------------
 

@@ -17,8 +17,21 @@ from flask import current_app, jsonify, request
 
 from app.blueprints.analytics import analytics_bp
 from app.models import MLModel
-from app.services.analytics_service import compute_dashboard
+from app.services.analytics_service import compute_dashboard, compute_sales_trend
 from app.utils.decorators import require_permission
+
+
+@analytics_bp.get("/sales-trend")
+@require_permission("analytics:read")
+def sales_trend_view():
+    """Serie temporelle des ventes jour par jour (graphiques tendance RF-24)."""
+    branch_id = request.args.get("branch_id")
+    try:
+        days = int(request.args.get("days", 30))
+    except ValueError:
+        days = 30
+    data = compute_sales_trend(branch_id=branch_id, days=days)
+    return jsonify({"items": data, "count": len(data)})
 
 
 @analytics_bp.get("/dashboard")

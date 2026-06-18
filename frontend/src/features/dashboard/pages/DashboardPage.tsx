@@ -41,27 +41,17 @@ export default function DashboardPage() {
   // Cf. doc 22-DASHBOARD-BI.md §22.2/§22.5 (SSE/polling).
   const realtime = useDashboardStream(user?.branch_id);
 
-  // Ventes hors-ligne synchronisées nécessitant une régularisation admin
-  // (conflits de stock RG-29, remises en attente d'approbation RG-23).
-  // Cf. docs/26-GESTION-OFFLINE-PWA.md §26.6/§26.8.
-  const canReviewSyncIssues = hasPermission("sales:approve_discount");
+  // Ventes hors-ligne synchronisées avec conflit de stock (RG-29).
+  const canReviewConflicts = hasPermission("sales:read");
 
   const conflictsQuery = useQuery({
     queryKey: ["sales", "conflicts"],
     queryFn: () => salesApi.list({ status: "EN_CONFLIT", per_page: 5 }),
-    enabled: canReviewSyncIssues,
-  });
-
-  const pendingApprovalQuery = useQuery({
-    queryKey: ["sales", "pending-approval"],
-    queryFn: () => salesApi.list({ status: "EN_ATTENTE_APPROBATION", per_page: 5 }),
-    enabled: canReviewSyncIssues,
+    enabled: canReviewConflicts,
   });
 
   const conflicts = conflictsQuery.data?.data ?? [];
-  const pendingApproval = pendingApprovalQuery.data?.data ?? [];
-  const syncIssuesCount =
-    (conflictsQuery.data?.meta.total ?? 0) + (pendingApprovalQuery.data?.meta.total ?? 0);
+  const conflictsCount = conflictsQuery.data?.meta.total ?? 0;
 
   return (
     <div className="space-y-6">
@@ -70,47 +60,25 @@ export default function DashboardPage() {
         <p className="text-sm text-muted">Vue d'ensemble de l'activite du jour</p>
       </div>
 
-      {canReviewSyncIssues && syncIssuesCount > 0 && (
+      {canReviewConflicts && conflictsCount > 0 && (
         <div className="card border-l-4 border-l-red-500">
           <h2 className="card-title flex items-center gap-2 text-red-700">
             <ShieldAlert className="h-4 w-4" />
-            Ventes synchronisées à régulariser ({syncIssuesCount})
+            Ventes synchronisées en conflit de stock ({conflictsCount})
           </h2>
           <p className="text-sm text-muted">
-            Ces ventes saisies hors-ligne ont été synchronisées mais nécessitent une vérification
-            (conflit de stock RG-29 ou remise en attente d'approbation RG-23).
+            Ces ventes hors-ligne ont été synchronisées mais le stock était insuffisant au moment
+            de la synchronisation (RG-29). Une régularisation manuelle est requise.
           </p>
 
           {conflicts.length > 0 && (
             <div className="mt-3">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-red-700">
-                Conflits de stock ({conflictsQuery.data?.meta.total})
-              </p>
               <ul className="space-y-1 text-sm">
                 {conflicts.map((sale) => (
                   <li key={sale.id} className="flex items-center justify-between gap-2">
                     <span>
                       <span className="font-medium text-primary-dark">{sale.reference}</span> —{" "}
                       {sale.branch_name} · {formatDateTime(sale.created_at)}
-                    </span>
-                    <span className="text-muted">{formatCurrency(sale.total)}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {pendingApproval.length > 0 && (
-            <div className="mt-3">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-700">
-                Remises en attente d'approbation ({pendingApprovalQuery.data?.meta.total})
-              </p>
-              <ul className="space-y-1 text-sm">
-                {pendingApproval.map((sale) => (
-                  <li key={sale.id} className="flex items-center justify-between gap-2">
-                    <span>
-                      <span className="font-medium text-primary-dark">{sale.reference}</span> —{" "}
-                      {sale.branch_name} · {formatDateTime(sale.created_at)} · remise {sale.discount_rate}%
                     </span>
                     <span className="text-muted">{formatCurrency(sale.total)}</span>
                   </li>

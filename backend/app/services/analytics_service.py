@@ -204,6 +204,66 @@ def compute_dashboard_realtime(branch_id: str | None = None) -> dict:
     }
 
 
+def compute_sales_trend(branch_id: str | None = None, days: int = 30) -> list[dict]:
+    """Tendance des ventes jour par jour sur la periode donnee (pour graphiques).
+
+    Retourne une liste de points [{date, revenue, sales_count, margin}]
+    triee chronologiquement, utilisee par les graphiques de la page Analytics.
+    """
+    from app.models import SaleLine as SL
+    days = max(1, min(int(days), 365))
+    period_start = datetime.combine((datetime.utcnow() - timedelta(days=days - 1)).date(), time.min)
+
+    # Revenu + nombre de ventes par jour
+    revenue_q = (
+        db.session.query(
+            func.date(Sale.created_at).label("day"),
+            func.coalesce(func.sum(Sale.total), 0).label("revenue"),
+            func.count(Sale.id).label("sales_count"),
+        )
+        .filter(Sale.status == SaleStatus.VALIDEE.value, Sale.created_at >= period_start)
+        .group_by(func.date(Sale.created_at))
+    )
+    if branch_id:
+        revenue_q = revenue_q.filter(Sale.branch_id == branch_id)
+
+    revenue_rows = {str(r.day): {"revenue": float(r.revenue), "sales_count": r.sales_count}
+                   for r in revenue_q.all()}
+
+    # Cout par jour (pour la marge)
+    cost_q = (
+        db.session.query(
+            func.date(Sale.created_at).label("day"),
+            func.coalesce(func.sum(SL.quantity * Product.purchase_price), 0).label("cost"),
+        )
+        .join(SL, SL.sale_id == Sale.id)
+        .join(Product, Product.id == SL.product_id)
+        .filter(Sale.status == SaleStatus.VALIDEE.value, Sale.created_at >= period_start)
+        .group_by(func.date(Sale.created_at))
+    )
+    if branch_id:
+        cost_q = cost_q.filter(Sale.branch_id == branch_id)
+
+    cost_rows = {str(r.day): float(r.cost) for r in cost_q.all()}
+
+    # Assembler en serie complete (un point par jour, meme si 0 vente)
+    result = []
+    for i in range(days):
+        day = (datetime.utcnow() - timedelta(days=days - 1 - i)).date()
+        day_str = str(day)
+        rev_data = revenue_rows.get(day_str, {"revenue": 0.0, "sales_count": 0})
+        cost = cost_rows.get(day_str, 0.0)
+        revenue = rev_data["revenue"]
+        result.append({
+            "date": day_str,
+            "revenue": round(revenue, 2),
+            "sales_count": rev_data["sales_count"],
+            "margin": round(revenue - cost, 2),
+        })
+
+    return result
+
+
 def top_products_for_period(branch_id: str | None = None, days: int = 30, limit: int = 10) -> list[dict]:
     """Produits les plus vendus (par quantite) sur la periode donnee."""
     days = max(1, min(int(days), 365))

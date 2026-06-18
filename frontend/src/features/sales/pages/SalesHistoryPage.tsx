@@ -18,7 +18,6 @@ const STATUS_LABELS: Record<string, string> = {
   AVOIR_EMIS: "Avoir émis",
   EN_ATTENTE_SYNC: "En attente sync",
   EN_CONFLIT: "En conflit",
-  EN_ATTENTE_APPROBATION: "En attente d'approbation",
 };
 
 const STATUS_BADGES: Record<string, string> = {
@@ -27,7 +26,6 @@ const STATUS_BADGES: Record<string, string> = {
   AVOIR_EMIS: "badge-info",
   EN_ATTENTE_SYNC: "badge-warning",
   EN_CONFLIT: "badge-danger",
-  EN_ATTENTE_APPROBATION: "badge-warning",
 };
 
 /** RF-19 : télécharge le reçu PDF d'une vente et l'ouvre dans le navigateur. */

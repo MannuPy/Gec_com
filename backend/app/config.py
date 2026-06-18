@@ -62,11 +62,6 @@ class BaseConfig:
     # ---- CORS ----
     CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")
 
-    # ---- Regles de gestion (RG-22) : taux de remise autorises ----
-    ALLOWED_DISCOUNT_RATES = [0, 5, 10, 15, 20]
-    # Au-dela de ce seuil, une approbation est obligatoire (RG-23)
-    DISCOUNT_APPROVAL_THRESHOLD = 10
-
     # ---- Inventaire : seuil d'ecart necessitant justification (RG-33) ----
     INVENTORY_VARIANCE_THRESHOLD_PCT = 5
 
