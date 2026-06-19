@@ -17,6 +17,8 @@ import type {
   RfmSegmentItem,
   RfmSegmentParams,
   SalesTrendItem,
+  CohortAnalysis,
+  ClvResponse,
 } from "@/types/analytics";
 
 export const analyticsApi = {
@@ -70,4 +72,12 @@ export const analyticsApi = {
   /** RF-29 : déclenche l'entraînement d'un modèle ML côté serveur. */
   trainModel: (modelType: MlModelType) =>
     apiClient.post<MlTrainResult>("/analytics/ml/train", { model_type: modelType }).then((r) => r.data),
+
+  /** Feature E : analyse de cohortes clients (rétention par mois d'acquisition). */
+  cohorts: (params: { months?: number } = {}) =>
+    apiClient.get<CohortAnalysis>("/analytics/cohorts", { params }).then((r) => r.data),
+
+  /** Feature F : Customer Lifetime Value estimée. */
+  clv: (params: { limit?: number; min_clv?: number } = {}) =>
+    apiClient.get<ClvResponse>("/analytics/clv", { params }).then((r) => r.data),
 };

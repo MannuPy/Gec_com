@@ -67,4 +67,4 @@ locale           |----------------------|----------------------
                      Complexité fonctionnelle
 ```
 
-GesCom-BF se positionne comme une solution **à forte adaptation locale et complexité fonctionnelle maîtrisée** (modulaire, pas de sur-ingénierie), avec un **avantage IA** qu'aucun concurrent direct ne propose dans ce segment.
+GesCom-BF se positionne comme une solution **à forte adaptation locale et complexité fonctionnelle maîtrisée** (modulaire, pas de sur-ingénierie), avec un **

@@ -299,23 +299,4 @@ CREATE TABLE predictions (
 CREATE INDEX idx_predictions_product_branch ON predictions(product_id, branch_id, created_at);
 ```
 
-## 14.2 Table globale `companies` (schéma `public`)
-
-```sql
--- Schéma public — registre des tenants
-CREATE TABLE public.companies (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    name            VARCHAR(150) NOT NULL,
-    schema_name     VARCHAR(63) NOT NULL UNIQUE,  -- ex: tenant_quincaillerie_ouaga
-    subscription_plan VARCHAR(20) NOT NULL DEFAULT 'FREEMIUM'
-                        CHECK (subscription_plan IN ('FREEMIUM','STANDARD','PREMIUM')),
-    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-```
-
-## 14.3 Notes d'implémentation
-
-- L'extension `pg_trgm` (utilisée pour `idx_products_name_trgm`) doit être activée : `CREATE EXTENSION IF NOT EXISTS pg_trgm;` — elle permet la recherche tolérante aux fautes (RF-08) via similarité trigramme, en complément de la recherche côté client (Fuse.js, mode offline).
-- Le partitionnement de `audit_logs` (et optionnellement `sales`, `stock_movements` au-delà de 500k lignes) est géré par une tâche Celery mensuelle qui crée la partition du mois suivant.
-- Toutes les tables utilisent `UUID` comme clé primaire (génération `uuid_generate_v4()`) pour faciliter la synchronisation offline (les UUID générés côté client ne collisionnent pas avec le serveur).
+## 14.2 Table glo

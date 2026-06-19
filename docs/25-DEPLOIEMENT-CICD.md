@@ -84,11 +84,26 @@ volumes:
   frontend_build:
 ```
 
+## 25.2.1 Configuration Docker Compose dev (`docker-compose.yml`)
+
+Le service `api` en développement local utilise `flask run` avec `--no-reload` pour éviter les redémarrages intempestifs liés au rechargeur Werkzeug sur les volumes WSL2 (cf. §9.9.1) :
+
+```yaml
+api:
+  command: >
+    sh -c "flask db upgrade && python -m app.seed &&
+           flask run --host=0.0.0.0 --port=5000 --no-reload"
+```
+
+> **À noter** : `--no-reload` désactive le rechargeur automatique de code. Après modification d'un fichier Python, relancer le conteneur : `docker compose restart api`.
+
+Le service `worker` (Celery) est configuré avec `broker_connection_retry_on_startup=True` dans `backend/app/celery_app.py` pour supprimer l'avertissement de dépréciation Celery 5.3+ (`CPendingDeprecationWarning`).
+
 ## 25.3 Environnements
 
 | Environnement | Usage | Données | Déploiement |
 |---|---|---|---|
-| **Local (dev)** | Développement quotidien | Jeu de données synthétique réduit | `docker-compose.dev.yml`, hot-reload |
+| **Local (dev)** | Développement quotidien | Jeu de données synthétique réduit | `docker-compose.yml`, `--no-reload` (rechargeur désactivé) |
 | **CI** | Validation automatique des PR | Base de test éphémère (conteneur jetable) | GitHub Actions |
 | **Staging** | Recette / démonstration jury | Jeu de données synthétique complet | `docker-compose.staging.yml` sur VPS dédié |
 | **Production** | Exploitation réelle (post-soutenance) | Données réelles tenants | `docker-compose.prod.yml`, sauvegardes actives |
@@ -264,7 +279,22 @@ renvoie une erreur 503 explicite sur ce déploiement).
 3. Générer des secrets aléatoires (`SECRET_KEY`, `JWT_SECRET_KEY`) :
 
    ```bash
-   python -c "import secrets; print(secrets.token_urlsafe(48))"
+   # SECRET_KEY (Flask sessions)
+   python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+
+   # JWT_SECRET_KEY — minimum 32 octets (256 bits recommandés)
+   # token_hex(32) produit 64 caractères hex = 256 bits
+   python3 -c "import secrets; print(secrets.token_hex(32))"
+   ```
+
+   > **Important** : Flask-JWT-Extended émet un `InsecureKeyLengthWarning` si `JWT_SECRET_KEY` fait moins de 32 octets. La commande `token_hex(32)` produit une clé de 64 caractères (256 bits) qui satisfait cette exigence. Ne jamais utiliser la valeur par défaut `"dev-jwt-secret"` en production.
+
+   Variables JWT à configurer dans `.env` :
+
+   ```env
+   JWT_SECRET_KEY=<64 caractères hex générés ci-dessus>
+   JWT_ACCESS_TOKEN_EXPIRES_MINUTES=60   # durée de vie du token d'accès (60 min recommandé)
+   JWT_REFRESH_TOKEN_EXPIRES_DAYS=7
    ```
 
 Cf. `backend/.env.pythonanywhere.example` pour la liste complète des
@@ -319,37 +349,4 @@ sur PythonAnywhere), puis uploadé :
 # En local
 cd frontend
 npm ci
-npm run build        # génère frontend/dist/
-
-# Upload vers PythonAnywhere (ex. via git, ou rsync/scp)
-# Le dossier doit correspondre à SERVE_FRONTEND_DIST défini dans .env
-```
-
-Une fois `SERVE_FRONTEND_DIST=/home/<utilisateur>/gescom-bf/frontend/dist`
-défini dans `.env` et l'application rechargée, Flask sert le SPA (avec
-fallback `index.html` pour le routage client) et l'API sous le même
-domaine — `VITE_API_URL` doit rester vide (le client utilise `/api/v1`
-relatif, cf. `frontend/src/api/client.ts`).
-
-### 25.9.7 Tâches planifiées (remplacement de Celery beat)
-
-Onglet **Tasks** de PythonAnywhere — ajouter des tâches planifiées
-équivalentes au `beat_schedule` de `app/celery_app.py` :
-
-| Fréquence (UTC) | Commande | Rôle |
-|---|---|---|
-| Quotidienne, 02h00 | `cd ~/gescom-bf/backend && venv/bin/flask etl-daily` | Pipeline ETL (extraction → validation → feature store, §21.6) |
-| Quotidienne, 02h30 | `cd ~/gescom-bf/backend && venv/bin/flask ml-train-all` | Réentraînement des modèles (demande, scoring crédit, anomalies, ABC/XYZ, RFM — RF-25 à RF-28) |
-| Horaire (si plan suffisant) | `cd ~/gescom-bf/backend && venv/bin/flask ml-detect-anomalies` | Détection d'anomalies sur les ventes récentes (RF-28), sinon couverte par `ml-train-all` |
-
-> Le nombre de tâches planifiées simultanées dépend du plan PythonAnywhere ;
-> sur un plan limité, regrouper dans `ml-train-all` (déjà le cas par défaut).
-
-### 25.9.8 Vérification post-déploiement
-
-- `GET https://<utilisateur>.pythonanywhere.com/health` → `{"status": "ok"}`
-- Connexion avec le compte créé par `flask seed` (cf. `SEED_ADMIN_EMAIL` /
-  `SEED_ADMIN_PASSWORD`), puis changement de mot de passe imposé (RF-05).
-- Dashboard (`/reports/dashboard`) : vérifier que les données s'affichent en
-  temps réel (SSE) ou via le badge de polling (fallback automatique, §25.9.1).
-- Logs d'erreurs : onglet **Web** -> **Log files** (`error.log`, `server.log`).
+npm run build      

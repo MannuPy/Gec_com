@@ -35,5 +35,4 @@ def upgrade():
 def downgrade():
     # ### Lot 3 - changement de mot de passe forcé à la 1re connexion (RF-05) ###
     with op.batch_alter_table('users', schema=None) as batch_op:
-        batch_op.drop_column('must_change_password')
-    # ### end Alembic commands ###
+        batch_op.drop_column('must_change_password'

@@ -41,4 +41,4 @@ class CurrentUserSchema(Schema):
     role = fields.String()
     permissions = fields.List(fields.String())
     branch_id = fields.String(allow_none=True)
-    branch_name = fields.String(allow_none=True)
+    br

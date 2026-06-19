@@ -5,6 +5,7 @@ import {
   BarChart2,
   BookOpen,
   BrainCircuit,
+  Building2,
   ClipboardList,
   CreditCard,
   LayoutDashboard,
@@ -51,6 +52,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/credits", label: "Credits clients", icon: CreditCard, permission: "customers:read" },
   { to: "/retours", label: "Retours produits", icon: RotateCcw, permission: "sales:read" },
   { to: "/comptabilite", label: "Comptabilite", icon: BookOpen, permission: "reports:read" },
+  { to: "/comparatif", label: "Comparatif succursales", icon: Building2, permission: "reports:read" },
   { to: "/analytique", label: "Analytique & IA", icon: BrainCircuit, permission: "analytics:read" },
   { to: "/utilisateurs", label: "Utilisateurs", icon: UserCog, permission: "users:read" },
   { to: "/audit", label: "Journal d'audit", icon: ScrollText, permission: "users:read" },
@@ -168,6 +170,7 @@ export function AppLayout() {
             <span className="hidden sm:inline">Deconnexion</span>
           </button>
         </div>
+
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
           <Outlet />

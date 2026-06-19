@@ -23,6 +23,7 @@ const CreditsPage = lazy(() => import("@/features/credits/pages/CreditsPage"));
 const RefundsPage = lazy(() => import("@/features/refunds/pages/RefundsPage"));
 const VendeurDashboardPage = lazy(() => import("@/features/vendeur/pages/VendeurDashboardPage"));
 const ComptaPage = lazy(() => import("@/features/compta/pages/ComptaPage"));
+const BranchComparePage = lazy(() => import("@/features/branches/pages/BranchComparePage"));
 
 function Loading() {
   return (
@@ -114,6 +115,10 @@ export const router = createBrowserRouter([
           {
             element: <RequirePermission permission="reports:read" />,
             children: [{ path: "comptabilite", element: withSuspense(<ComptaPage />) }],
+          },
+          {
+            element: <RequirePermission permission="reports:read" />,
+            children: [{ path: "comparatif", element: withSuspense(<BranchComparePage />) }],
           },
         ],
       },

@@ -86,4 +86,4 @@ Une analyse détaillée des solutions existantes (Odoo, Sage, Wave ERP, solution
 
 ## 1.8 Lecture recommandée
 
-Pour une lecture en vue de la soutenance, suivre l'ordre des fichiers numérotés du dossier `docs/`. Pour une lecture technique ciblée (développeur backend, par exemple), se référer directement à `08-ARCHITECTURE-TECHNIQUE.md`, `09-BACKEND-FLASK.md`, `11-BASE-DE-DONNEES.md` et `17-API-REST.md`.
+Pour une lecture en vue de la soutenance, suivre l'ordre des fichiers numérotés du dossier `docs/`. Pour une lecture technique ciblée (développeur backend, par exemple), se référer directement à `08-ARCHITEC

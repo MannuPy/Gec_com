@@ -112,4 +112,4 @@ PREDICTIONS ( id_prediction, #id_entreprise, #id_modele, #id_produit, #id_site,
 | **2FN** | Aucune dépendance partielle : chaque attribut non-clé dépend de la totalité de la clé primaire (les clés sont toutes simples, sauf `ROLE_PERMISSIONS` qui est une clé composite sans attribut non-clé) |
 | **3FN** | Aucune dépendance transitive : ex. `prix_unitaire_applique` est stocké dans `SALE_LINES` (et non recalculé depuis `PRODUCTS`) **intentionnellement** — il s'agit d'une **dénormalisation contrôlée** pour garantir l'immuabilité historique des ventes (RG-27), documentée comme exception justifiée |
 
-> **Exception documentée** : `SALE_LINES.prix_unitaire_applique` et `STOCK.quantite` (donnée dérivée des `STOCK_MOVEMENTS`) sont des dénormalisations volontaires pour la performance (RNF-01) et la traçabilité historique. La cohérence est garantie par triggers (cf. `16-CONTRAINTES-SQL.md`).
+> **Exception documentée** : `SALE_LINES.prix_unitaire_applique` et `STOCK.quantite` (donnée dérivée des `STOCK_MOVEMENTS`) sont des dénormalisations volontaires pour la performanc

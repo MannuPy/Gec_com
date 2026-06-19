@@ -140,5 +140,4 @@ FOR EACH ROW EXECUTE FUNCTION trg_update_customer_balance();
 | Table | Politique |
 |---|---|
 | `audit_logs` | Partitions mensuelles ; partition > 12 mois exportée (JSON) vers stockage froid puis détachée (`DETACH PARTITION`) — RNF-18 |
-| `predictions` | Purge des prédictions > 90 jours (sauf échantillon conservé pour évaluation des modèles) |
-| `stock_movements` | Partitionnement annuel recommandé au-delà de 500k lignes (RNF-04) |
+| `predictions` | Purge des prédictions > 90 jours (sauf échan

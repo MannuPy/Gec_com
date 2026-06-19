@@ -107,5 +107,4 @@ def register_cli(app: Flask) -> None:
         """Detection d'anomalies sur les ventes recentes (RF-28), executable horairement."""
         from app.tasks.ml_tasks import detect_anomalies_task
 
-        result = detect_anomalies_task.run(days=days)
-        click.echo(f"Detection anomalies complete : {result}")
+        

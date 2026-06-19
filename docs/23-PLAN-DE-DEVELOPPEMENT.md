@@ -93,4 +93,4 @@ gantt
 | Absence de données réelles pour entraîner les modèles IA | Élevée | Moyen | Jeu de données synthétique documenté (`20-MACHINE-LEARNING.md` §20.6) |
 | Complexité du mode offline sous-estimée | Moyenne | Élevé | Sprint dédié (7), prototype précoce |
 | Dérive de planning sur le module IA | Moyenne | Moyen | Sprints 8-10 dédiés, backlog IA priorisé MoSCoW |
-| Multi-tenant ajoutant de la complexité transverse | Moyenne | Moyen | Architecture schema-per-tenant posée dès Sprint 0-1 |
+| Multi-tenant ajoutant de la comp

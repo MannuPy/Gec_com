@@ -334,141 +334,131 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
-  /sync/sales:
-    post:
-      summary: Synchroniser un lot de ventes saisies hors-ligne
-      tags: [Sync]
+  /sales/refunds/pending:
+    get:
+      summary: Lister les avoirs en attente d'approbation
+      tags: [Sales]
       security: [ { bearerAuth: [] } ]
+      description: Retourne toutes les ventes au statut `EN_ATTENTE_APPROBATION`. Requiert `sales:refund`.
+      responses:
+        '200':
+          description: Liste des avoirs en attente
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Sale' }
+
+  /sales/{id}/refund/approve:
+    patch:
+      summary: Approuver un avoir en attente
+      tags: [Sales]
+      security: [ { bearerAuth: [] } ]
+      description: Passe à `AVOIR_EMIS`, réintègre le stock et met à jour l'encours client si paiement à crédit (RG-27). Requiert `sales:refund`.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Avoir approuvé
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sale' }
+        '409': { description: L'avoir n'est pas au statut EN_ATTENTE_APPROBATION }
+
+  /sales/{id}/refund/reject:
+    patch:
+      summary: Rejeter un avoir en attente
+      tags: [Sales]
+      security: [ { bearerAuth: [] } ]
+      description: Passe à `ANNULEE`. Aucune modification de stock ni d'encours. Requiert `sales:refund`.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, description: Motif du rejet (optionnel) }
+      responses:
+        '200':
+          description: Avoir rejeté
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Sale' }
+
+  /sales/credits:
+    get:
+      summary: Lister les clients avec encours crédit non nul
+      tags: [Sales]
+      security: [ { bearerAuth: [] } ]
+      description: Retourne les clients avec `credit_balance > 0`, triés par encours décroissant. Filtrable par `branch_id` et `customer_type`.
+      parameters:
+        - in: query
+          name: branch_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: customer_type
+          schema: { type: string, enum: [SIMPLE, TECHNICIEN] }
+      responses:
+        '200':
+          description: Liste des clients avec encours
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Customer' }
+
+  /sales/customers/{customer_id}/settle:
+    post:
+      summary: Régler (partiellement ou totalement) l'encours crédit d'un client
+      tags: [Sales]
+      security: [ { bearerAuth: [] } ]
+      description: Réduit `credit_balance` du montant indiqué. Si `amount > credit_balance`, règle la totalité. Génère un `AuditLog CREDIT_SETTLED`. Requiert `customers:write` et `sales:create`.
+      parameters:
+        - in: path
+          name: customer_id
+          required: true
+          schema: { type: string, format: uuid }
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [amount]
               properties:
-                sales:
-                  type: array
-                  items: { $ref: '#/components/schemas/SaleCreateRequest' }
+                amount: { type: string, description: Montant à régler (Decimal en chaîne, ex. "5000.00") }
+                note: { type: string, description: Commentaire optionnel (archivé dans l'audit) }
       responses:
         '200':
-          description: Résultat de synchronisation par vente
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  results:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        offline_uuid: { type: string, format: uuid }
-                        status: { type: string, enum: [VALIDEE, EN_CONFLIT, DEJA_SYNCHRONISE] }
-                        sale_id: { type: string, format: uuid }
-
-  /ai/stock-predictions:
-    get:
-      summary: Lister les prévisions de rupture de stock
-      tags: [AI]
-      security: [ { bearerAuth: [] } ]
-      parameters:
-        - in: query
-          name: branch_id
-          schema: { type: string, format: uuid }
-        - in: query
-          name: horizon_days
-          schema: { type: integer, enum: [7, 14, 30], default: 7 }
-      responses:
-        '200':
-          description: Liste des prévisions
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    product_id: { type: string, format: uuid }
-                    branch_id: { type: string, format: uuid }
-                    predicted_stockout_date: { type: string, format: date, nullable: true }
-                    recommended_order_qty: { type: integer }
-                    model_version: { type: string }
-
-  /ai/credit-score/{customer_id}:
-    get:
-      summary: Obtenir le score de solvabilité d'un client
-      tags: [AI]
-      security: [ { bearerAuth: [] } ]
-      parameters:
-        - in: path
-          name: customer_id
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200':
-          description: Score de solvabilité
+          description: Remboursement enregistré
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   customer_id: { type: string, format: uuid }
-                  score: { type: number, minimum: 0, maximum: 100 }
-                  risk_level: { type: string, enum: [FAIBLE, MOYEN, ELEVE] }
-                  model_version: { type: string }
+                  amount_settled: { type: string }
+                  new_credit_balance: { type: string }
 
-  /audit:
-    get:
-      summary: Consulter les journaux d'audit
-      tags: [Audit]
+  /analytics/ml/train:
+    post:
+      summary: Déclencher l'entraînement d'un modèle ML (payload JSON)
+      tags: [Analytics]
       security: [ { bearerAuth: [] } ]
-      parameters:
-        - in: query
-          name: user_id
-          schema: { type: string, format: uuid }
-        - in: query
-          name: event_type
-          schema: { type: string }
-        - in: query
-          name: from
-          schema: { type: string, format: date }
-        - in: query
-          name: to
-          schema: { type: string, format: date }
-      responses:
-        '200': { description: Liste paginée des logs }
-        '403': { description: Accès réservé à l'administrateur }
-```
-
-## 17.3 Codes d'erreur applicatifs (référence croisée RG)
-
-| Code | HTTP | Règle de gestion | Module |
-|---|---|---|---|
-| `INVALID_CREDENTIALS` | 401 | - | Auth |
-| `TOKEN_EXPIRED` | 401 | RG-36 | Auth |
-| `ACCOUNT_DISABLED` | 403 | - | Auth |
-| `FORBIDDEN` | 403 | RBAC | Tous |
-| `VALIDATION_ERROR` | 400 | RG-08 à RG-10, RG-22 | Produits, Ventes |
-| `INSUFFICIENT_STOCK` | 409 | RG-18, RG-24 | Transferts, Ventes |
-| `DISCOUNT_APPROVAL_REQUIRED` | 422 | RG-23 | Ventes |
-| `SALE_IMMUTABLE` | 409 | RG-27 | Ventes |
-| `CREDIT_REQUIRES_CUSTOMER` | 422 | RG-26 | Ventes |
-| `SYNC_CONFLICT` | 200 (statut métier) | RG-29, RG-30 | Sync |
-
-## 17.4 Endpoints — vue d'ensemble par module
-
-| Module | Endpoints principaux |
-|---|---|
-| Auth | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/change-password` |
-| Users | `GET/POST /users`, `PATCH /users/{id}`, `GET /roles` |
-| Products | `GET/POST /products`, `PATCH /products/{id}`, `GET/POST /categories`, `GET/POST /brands` |
-| Suppliers | `GET/POST /suppliers`, `POST /suppliers/{id}/receptions` |
-| Stock | `GET /stock`, `GET /stock/movements` |
-| Transfers | `GET/POST /transfers`, `POST /transfers/{id}/receive`, `POST /transfers/{id}/cancel` |
-| Sales | `GET/POST /sales`, `GET /sales/{id}/receipt` (PDF) |
-| Sync | `POST /sync/sales` |
-| Inventories | `POST /inventories`, `PATCH /inventories/{id}/lines`, `POST /inventories/{id}/validate` |
-| Reports | `GET /reports/dashboard`, `GET /reports/sales`, `GET /reports/export` (PDF) |
-| Analytics | `GET /analytics/abc-xyz`, `GET /analytics/rfm` |
-| AI | `GET /ai/stock-predictions`, `GET /ai/credit-score/{id}`, `GET /ai/anomalies` |
-| Audit | `GET /audit` |
+      description: |
+        Alias body-param de `POST /analytics/ml/train/{model_type}`.
+        Accepte le type de modèle dans le corps JSON — format utilisé par le client frontend.
+        Par défaut synchrone ; `"async": true` délègue à Celery (avec repli synchrone si le broker est indisponible).
+        Requiert `ml:train`.
+      requestBody:
+        required: true
+        content:
+          application/j

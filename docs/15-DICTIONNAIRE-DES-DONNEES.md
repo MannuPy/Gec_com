@@ -217,6 +217,4 @@ Table partitionnée par mois (`created_at`), rétention 1 an (RNF-18, RG-35).
 | predictions | model_id | UUID | NN, FK→ml_models | Modèle utilisé (RG-40, lineage) |
 | predictions | product_id | UUID | FK→products, nullable | Produit concerné |
 | predictions | branch_id | UUID | FK→branches, nullable | Site concerné |
-| predictions | type | VARCHAR(50) | NN | RUPTURE_STOCK / CREDIT_SCORE / ANOMALIE / ABC_XYZ |
-| predictions | payload | JSONB | NN | Contenu de la prédiction (valeurs, intervalles de confiance, recommandations) |
-| predictions | created_at | TIMESTAMPTZ | NN | Date de génération |
+| predictions | type | VARCHAR(50) | NN | RUPTURE_STOCK / CREDIT_S

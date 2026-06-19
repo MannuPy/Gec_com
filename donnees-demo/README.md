@@ -58,5 +58,4 @@ une base propre.
 - **Crédit & recouvrement** : 101 échéances CustomerPayment
   (PENDING/PAID/LATE/CANCELLED).
 - **Anomalies volontaires** : 18 ventes anormales injectées sur 60 jours
-  (quantités extrêmes, horaires inhabituels, stock négatif RG-30) pour
-  tester la détection ML (RF-28).
+  (quantités extrêmes, horaires inhabituels, st

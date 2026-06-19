@@ -130,6 +130,4 @@ def downgrade():
     with op.batch_alter_table('fs_daily_sales', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_fs_daily_sales_branch_id'))
         batch_op.drop_index(batch_op.f('ix_fs_daily_sales_product_id'))
-        batch_op.drop_index(batch_op.f('ix_fs_daily_sales_sale_date'))
-    op.drop_table('fs_daily_sales')
-    # ### end Alembic commands ###
+        ba

@@ -200,4 +200,4 @@ Voir la maquette détaillée en `22-DASHBOARD-BI.md` §22.4 — reproduite ici p
 
 ## 29.11 Prochaine étape recommandée
 
-Convertir ces wireframes en maquettes haute-fidélité (Figma) pour les écrans UC-11 (caisse) et dashboard avant le développement frontend du Sprint 5 (cf. `23-PLAN-DE-DEVELOPPEMENT.md`), afin de valider l'ergonomie auprès d'un utilisateur pilote si disponible.
+Convertir ces wireframes en maquettes haute-fidélité (Figma) 

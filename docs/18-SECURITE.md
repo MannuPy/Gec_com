@@ -122,6 +122,4 @@ sequenceDiagram
 | Connexion échouée | `LOGIN_FAILED` |
 | Déconnexion | `LOGOUT` |
 | Accès refusé (RBAC) | `ACCESS_DENIED` |
-| Remise appliquée | `DISCOUNT_APPLIED` |
-| Modification de prix | `PRODUCT_PRICE_CHANGED` |
-| Conflit de synchronisation | `SALE_CONFLICT` |
+| Remise appliquée

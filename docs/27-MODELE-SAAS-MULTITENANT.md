@@ -163,8 +163,4 @@ stateDiagram-v2
 | Migrations | Script séquentiel `migrate_all_tenants.py` (cf. `25-DEPLOIEMENT-CICD.md`) — pour > 200 tenants, paralléliser par lots |
 | Tâches Celery planifiées (ETL, IA) | Itération par tenant actif, avec limitation de concurrence pour éviter la saturation CPU lors des entraînements hebdomadaires |
 
-## 27.10 Synthèse : ce que le multi-tenant apporte au projet
-
-- **Valorisation SaaS** : un seul socle technique peut servir plusieurs quincailleries clientes, modèle économique récurrent (abonnement).
-- **Isolation et sécurité** : chaque client a la garantie contractuelle que ses données ne sont jamais visibles par un autre (RG-41, `18-SECURITE.md` §multi-tenant).
-- **Exploitation mutualisée** : sauvegardes, monitoring et mises à jour gérés une seule fois pour tous les tenants (`25-DEPLOIEMENT-CICD.md`, `28-MONITORING-OBSERVABILITE.md`).
+## 27.10 Synthès

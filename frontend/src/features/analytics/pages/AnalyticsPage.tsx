@@ -63,6 +63,8 @@ const TABS = [
   { id: "rfm",       label: "Segmentation RFM"     },
   { id: "credit",    label: "Scoring crédit"       },
   { id: "anomalies", label: "Anomalies"            },
+  { id: "cohorts",   label: "Cohortes clients"     },
+  { id: "clv",       label: "Valeur vie client"    },
   { id: "ml",        label: "Modèles IA"           },
 ] as const;
 
@@ -239,6 +241,20 @@ export default function AnalyticsPage() {
     queryKey: ["ml-models"],
     queryFn:  analyticsApi.mlModels,
     enabled:  tab === "ml",
+  });
+
+  const cohortsQuery = useQuery({
+    queryKey: ["analytics-cohorts"],
+    queryFn:  () => analyticsApi.cohorts({ months: 12 }),
+    enabled:  tab === "cohorts",
+    staleTime: 300_000,
+  });
+
+  const clvQuery = useQuery({
+    queryKey: ["analytics-clv"],
+    queryFn:  () => analyticsApi.clv({ limit: 50 }),
+    enabled:  tab === "clv",
+    staleTime: 300_000,
   });
 
   const trainMutation = useMutation({
@@ -984,6 +1000,219 @@ export default function AnalyticsPage() {
                           <td className="text-right">{item.remise_taux} %</td>
                           <td className="text-right font-semibold text-amber-600">{item.score.toFixed(2)}</td>
                           <td className="text-xs text-muted">{item.reasons.join(", ")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </QueryState>
+        )}
+
+        {/* ════════════════════════════════════
+            COHORTES CLIENTS (Feature E)
+        ════════════════════════════════════ */}
+        {tab === "cohorts" && (
+          <QueryState query={cohortsQuery} errorMessage="Impossible de charger les cohortes.">
+            {(data) => (
+              <div className="space-y-6">
+                {/* Statistiques globales */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <KpiCard label="Cohortes analysées"   value={String(data.cohorts.length)} />
+                  <KpiCard label="Horizont max analysé" value={`M+${data.max_months}`} />
+                  <KpiCard
+                    label="Clients total"
+                    value={formatNumber(data.cohorts.reduce((s, c) => s + c.size, 0))}
+                  />
+                  <KpiCard
+                    label="Rét. M+1 moyenne"
+                    value={
+                      data.cohorts.length
+                        ? (() => {
+                            const rates = data.cohorts
+                              .map((c) => c.retention.find((r) => r.month === 1)?.rate ?? 0);
+                            return (rates.reduce((a, b) => a + b, 0) / rates.length).toFixed(1) + " %";
+                          })()
+                        : "—"
+                    }
+                  />
+                </div>
+
+                {/* Heatmap de rétention */}
+                <div className="overflow-x-auto rounded-xl border border-surface bg-white shadow-sm">
+                  <div className="px-5 py-4">
+                    <h3 className="mb-1 text-sm font-semibold text-primary-dark">
+                      Matrice de rétention (% de clients encore actifs)
+                    </h3>
+                    <p className="mb-3 text-xs text-muted">
+                      Chaque ligne = cohorte d'acquisition. Chaque colonne = M+N mois après le 1er achat.
+                    </p>
+                  </div>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-surface bg-surface/50">
+                        <th className="px-4 py-2 text-left font-semibold text-muted whitespace-nowrap">Cohorte</th>
+                        <th className="px-3 py-2 text-center font-semibold text-muted">Taille</th>
+                        {Array.from({ length: Math.min(data.max_months + 1, 13) }, (_, i) => (
+                          <th key={i} className="px-3 py-2 text-center font-semibold text-muted whitespace-nowrap">
+                            {i === 0 ? "M+0" : `M+${i}`}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.cohorts.map((cohort) => (
+                        <tr key={cohort.cohort} className="border-b border-surface last:border-0">
+                          <td className="px-4 py-2 font-medium text-primary-dark whitespace-nowrap">
+                            {cohort.cohort}
+                          </td>
+                          <td className="px-3 py-2 text-center text-muted">{cohort.size}</td>
+                          {Array.from({ length: Math.min(data.max_months + 1, 13) }, (_, i) => {
+                            const point = cohort.retention.find((r) => r.month === i);
+                            const rate = point?.rate ?? 0;
+                            const opacity = i === 0 ? 1 : Math.min(rate / 100, 1);
+                            const bg = i === 0
+                              ? "bg-indigo-600 text-white"
+                              : rate === 0
+                              ? "bg-surface text-muted"
+                              : rate >= 50
+                              ? "bg-green-500 text-white"
+                              : rate >= 20
+                              ? "bg-amber-400 text-white"
+                              : "bg-red-300 text-white";
+                            return (
+                              <td
+                                key={i}
+                                className={`px-3 py-2 text-center font-medium ${bg}`}
+                                style={{ opacity: i === 0 ? 1 : 0.5 + opacity * 0.5 }}
+                                title={point ? `${point.count} clients — ${rate}%` : "Aucune donnée"}
+                              >
+                                {point ? `${rate}%` : "—"}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* BarChart rétention M+1 par cohorte */}
+                <div className="rounded-xl border border-surface bg-white p-5 shadow-sm">
+                  <h3 className="mb-4 text-sm font-semibold text-primary-dark">
+                    Taux de rétention M+1 par cohorte
+                  </h3>
+                  <ResponsiveContainer width="100%" height={240}>
+                    <BarChart
+                      data={data.cohorts.map((c) => ({
+                        cohort: c.cohort,
+                        "Rét. M+1 (%)": c.retention.find((r) => r.month === 1)?.rate ?? 0,
+                        "Rét. M+3 (%)": c.retention.find((r) => r.month === 3)?.rate ?? 0,
+                      }))}
+                      margin={{ top: 10, right: 20, left: 0, bottom: 10 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                      <XAxis dataKey="cohort" tick={{ fontSize: 10 }} />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} unit="%" />
+                      <Tooltip formatter={(v, name) => [`${v as number}%`, String(name)]} />
+                      <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+                      <Bar dataKey="Rét. M+1 (%)" fill="#4f46e5" radius={[3, 3, 0, 0]} />
+                      <Bar dataKey="Rét. M+3 (%)" fill="#16a34a" radius={[3, 3, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
+          </QueryState>
+        )}
+
+        {/* ════════════════════════════════════
+            CLV — VALEUR VIE CLIENT (Feature F)
+        ════════════════════════════════════ */}
+        {tab === "clv" && (
+          <QueryState query={clvQuery} errorMessage="Impossible de charger les données CLV.">
+            {(data) => (
+              <div className="space-y-6">
+                {/* KPI stats globales */}
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <KpiCard label="Clients analysés"  value={formatNumber(data.count)} accent />
+                  <KpiCard label="CLV moyenne"        value={formatCurrency(data.stats.clv_moyen)} accent />
+                  <KpiCard label="CLV médiane"        value={formatCurrency(data.stats.clv_median)} />
+                  <KpiCard label="CLV max"            value={formatCurrency(data.stats.clv_max)} />
+                </div>
+
+                {/* Top 10 BarChart */}
+                <div className="rounded-xl border border-surface bg-white p-5 shadow-sm">
+                  <h3 className="mb-4 text-sm font-semibold text-primary-dark">
+                    Top 10 clients par CLV estimée
+                  </h3>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart
+                      data={data.items.slice(0, 10).map((c) => ({
+                        name: c.name.length > 15 ? c.name.slice(0, 14) + "…" : c.name,
+                        CLV: c.clv_estime,
+                      }))}
+                      layout="vertical"
+                      margin={{ top: 5, right: 30, left: 60, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
+                      <XAxis
+                        type="number"
+                        tick={{ fontSize: 10 }}
+                        tickFormatter={(v) =>
+                          new Intl.NumberFormat("fr-FR", { notation: "compact" }).format(v as number)
+                        }
+                      />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={60} />
+                      <Tooltip formatter={(v) => [formatCurrency(v as number), "CLV estimée"]} />
+                      <Bar dataKey="CLV" fill="#4f46e5" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Tableau complet */}
+                <div className="overflow-x-auto rounded-xl border border-surface bg-white shadow-sm">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-surface bg-surface/50">
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">#</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted">Client</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">CA total</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Commandes</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Panier moy.</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Durée rel.</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Fréq./mois</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">CLV estimée</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.items.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="py-8 text-center text-sm text-muted">
+                            Aucune donnée disponible.
+                          </td>
+                        </tr>
+                      )}
+                      {data.items.map((item, idx) => (
+                        <tr key={item.customer_id} className="border-b border-surface last:border-0 hover:bg-surface/30">
+                          <td className="px-4 py-3 text-muted">{idx + 1}</td>
+                          <td className="px-4 py-3">
+                            <div className="font-medium text-primary-dark">{item.name}</div>
+                            {item.customer_type && (
+                              <div className="text-xs text-muted">{item.customer_type}</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right">{formatCurrency(item.ca_total)}</td>
+                          <td className="px-4 py-3 text-right">{item.nb_commandes}</td>
+                          <td className="px-4 py-3 text-right">{formatCurrency(item.panier_moyen)}</td>
+                          <td className="px-4 py-3 text-right text-muted">{item.duree_mois} mois</td>
+                          <td className="px-4 py-3 text-right text-muted">{item.frequence_mensuelle.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right">
+                            <span className="font-semibold text-indigo-700">
+                              {formatCurrency(item.clv_estime)}
+                            </span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>

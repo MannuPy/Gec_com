@@ -38,5 +38,4 @@ def downgrade():
     with op.batch_alter_table('sales', schema=None) as batch_op:
         batch_op.drop_constraint('ck_sale_channel_allowed', type_='check')
         batch_op.drop_column('updated_at')
-        batch_op.drop_column('channel')
-    # ### end Alembic commands ###
+        batch_op.drop_column('chann

@@ -54,19 +54,22 @@ backend/
 
 ## 9.2 Organisation en Blueprints
 
-| Blueprint | Préfixe URL | Responsabilité |
-|---|---|---|
-| `auth` | `/api/v1/auth` | Connexion, refresh, déconnexion, gestion mot de passe |
-| `users` | `/api/v1/users` | CRUD utilisateurs, rôles, permissions |
-| `products` | `/api/v1/products` | Catalogue, catégories, marques |
-| `suppliers` | `/api/v1/suppliers` | Fournisseurs, réceptions |
-| `inventory` | `/api/v1/stock`, `/api/v1/transfers`, `/api/v1/inventories` | Stock dépôt/boutiques, transferts, inventaires |
-| `sales` | `/api/v1/sales` | Ventes, remises, crédit |
-| `sync` | `/api/v1/sync` | Synchronisation des ventes hors-ligne |
-| `reports` | `/api/v1/reports` | Rapports consolidés, exports PDF |
-| `analytics` | `/api/v1/analytics` | ABC/XYZ, segmentation, KPIs |
-| `ai` | `/api/v1/ai` | Prévisions de rupture, scoring crédit, anomalies |
-| `audit` | `/api/v1/audit` | Consultation des journaux |
+| Blueprint | Préfixe d'enregistrement | Routes exposées | Responsabilité |
+|---|---|---|---|
+| `auth` | `/api/v1/auth` | `/login`, `/refresh`, `/logout`, `/change-password` | Authentification JWT |
+| `users` | `/api/v1/users` | `/`, `/<id>`, `/roles`, `/audit-logs` | CRUD utilisateurs, rôles, journal d'audit |
+| `products` | `/api/v1` | `/products`, `/categories`, `/brands`, `/branches` | Catalogue produits, sites |
+| `suppliers` | `/api/v1` | `/suppliers`, `/receptions`, `/receptions/<id>/validate` | Fournisseurs, réceptions de marchandises |
+| `stock` | `/api/v1/stock` | `/`, `/<id>`, `/movements` | Consultation du stock par site |
+| `transfers` | `/api/v1/transfers` | `/`, `/<id>`, `/<id>/send`, `/<id>/receive` | Transferts inter-sites |
+| `inventory` | `/api/v1/inventory` | `/`, `/<id>`, `/<id>/lines`, `/<id>/validate` | Inventaires physiques |
+| `sales` | `/api/v1/sales` | `/`, `/<id>`, `/sync`, `/customers`, `/refunds/pending`, `/<id>/refund`, `/<id>/refund/approve`, `/<id>/refund/reject`, `/credits`, `/customers/<id>/settle` | Ventes, avoirs, clients, encours crédit |
+| `reports` | `/api/v1/reports` | `/dashboard/summary`, `/dashboard/realtime`, `/dashboard/stream`, `/stock/export` | Tableaux de bord, exports |
+| `analytics` | `/api/v1/analytics` | `/kpis`, `/abc-xyz`, `/ml/models`, `/ml/train`, `/ml/train/<type>` | KPIs, classification, entraînement ML |
+
+> **Note d'implémentation** : `products_bp` et `suppliers_bp` sont enregistrés avec le préfixe `/api/v1` (sans suffixe de module) car leurs routes déclarent elles-mêmes `/products`, `/suppliers`, `/receptions`, etc. Ceci permet à ces blueprints de partager le même préfixe d'API racine sans collision.
+
+> **Journal d'audit** : exposé via `GET /api/v1/users/audit-logs` (blueprint `users`), pas sous `/audit`. Filtres : `event_type`, `user_id`, `page`, `per_page`.
 
 ## 9.3 Pattern d'implémentation (couches)
 
@@ -146,44 +149,4 @@ class SaleService:
 | Code HTTP | Code applicatif | Cas d'usage |
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | Données d'entrée invalides (Marshmallow) |
-| 401 | `INVALID_CREDENTIALS` / `TOKEN_EXPIRED` | Authentification |
-| 403 | `FORBIDDEN` / `ACCOUNT_DISABLED` | RBAC, compte désactivé |
-| 404 | `NOT_FOUND` | Ressource inexistante |
-| 409 | `INSUFFICIENT_STOCK` / `CONFLICT` | Conflits métier |
-| 422 | `DISCOUNT_APPROVAL_REQUIRED` | Règle de gestion non respectée |
-| 500 | `INTERNAL_ERROR` | Erreur serveur (loggée, message générique côté client) |
-
-## 9.7 Tâches planifiées (Celery Beat sur VPS · Scheduled Tasks sur PythonAnywhere)
-
-| Tâche | Commande CLI Flask | Fréquence | Description |
-|---|---|---|---|
-| `recompute_stock_predictions` | `flask ml-train-all` | Quotidienne (02h00) | Réentraîne/actualise les prévisions Prophet/XGBoost par produit/site (RG-37) |
-| `recompute_credit_scores` | — (déclenché par signal) | À chaque vente à crédit + nuit | Met à jour le score de solvabilité (RG-39) |
-| `run_anomaly_detection` | `flask anomaly-detect` | Toutes les heures | Exécute Isolation Forest sur les transactions récentes |
-| `compute_abc_xyz` | `flask abc-xyz` | Hebdomadaire | Recalcule la classification ABC/XYZ |
-| `db_backup` | `flask db-backup` | Quotidienne (03h00) | `pg_dump` (VPS) ou export MySQL (PythonAnywhere) |
-| `purge_old_audit_logs` | `flask purge-audit-logs` | Mensuelle | Archive les logs > 1 an vers stockage froid |
-| ETL Feature Store | `flask etl-daily` | Quotidienne | Extraction, validation, feature engineering |
-
-> Sur **PythonAnywhere**, ces commandes sont exécutées via les **Scheduled Tasks** (onglet "Tasks") — Celery et Redis ne sont pas requis. Sur VPS, Celery Beat les déclenche selon la config `CELERY_BEAT_SCHEDULE`.
-
-## 9.8 Configuration par environnement
-
-```python
-# app/config.py (extrait)
-class BaseConfig:
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(minutes=15)
-    JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
-    CELERY_BROKER_URL = os.environ["REDIS_URL"]
-
-class DevConfig(BaseConfig):
-    DEBUG = True
-    SQLALCHEMY_DATABASE_URI = os.environ["DATABASE_URL_DEV"]
-
-class ProdConfig(BaseConfig):
-    DEBUG = False
-    SQLALCHEMY_DATABASE_URI = os.environ["DATABASE_URL_PROD"]
-    SESSION_COOKIE_SECURE = True
-    SESSION_COOKIE_HTTPONLY = True
-```
+| 401 | `INVALID_CREDENTIALS` / `TOKEN_

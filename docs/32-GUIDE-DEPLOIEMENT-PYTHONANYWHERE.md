@@ -160,8 +160,10 @@ FLASK_ENV=production
 SECRET_KEY=<générer avec : python3 -c "import secrets; print(secrets.token_hex(32))">
 
 # ---- JWT ----
+# token_hex(32) = 64 caractères hex = 256 bits (minimum requis : 32 octets / 64 car. hex)
+# Une clé < 32 octets déclenche un InsecureKeyLengthWarning au démarrage.
 JWT_SECRET_KEY=<générer avec : python3 -c "import secrets; print(secrets.token_hex(32))">
-JWT_ACCESS_TOKEN_EXPIRES_MINUTES=15
+JWT_ACCESS_TOKEN_EXPIRES_MINUTES=60
 JWT_REFRESH_TOKEN_EXPIRES_DAYS=7
 
 # ---- CORS : remplacer par votre domaine PythonAnywhere ----
@@ -195,9 +197,14 @@ SQLALCHEMY_POOL_RECYCLE=280
 **Générer les clés secrètes :**
 
 ```bash
+# SECRET_KEY (Flask sessions)
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"
+
+# JWT_SECRET_KEY — 256 bits (64 caractères hex) — exécuter séparément
 python3 -c "import secrets; print(secrets.token_hex(32))"
-# Exécuter deux fois : une valeur pour SECRET_KEY, une pour JWT_SECRET_KEY
 ```
+
+> `token_hex(32)` produit 64 caractères hexadécimaux = 256 bits. Flask-JWT-Extended émet un `InsecureKeyLengthWarning` si la clé fait moins de 32 octets — ce qui se produirait avec `token_hex(16)` (32 car. = 128 bits = 16 octets, limite basse) ou des valeurs par défaut de développement.
 
 ### 5.3 Sécuriser le fichier `.env`
 
@@ -567,28 +574,4 @@ pip install -r requirements.txt
 ```bash
 # Supprimer toutes les tables
 mysql -u <username> -h <username>.mysql.pythonanywhere-services.com -p<password> \
-  -e "DROP DATABASE \`<username>\$gescom_bf\`; CREATE DATABASE \`<username>\$gescom_bf\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-
-# Ré-appliquer les migrations
-cd ~/gescom-bf/backend && source .venv/bin/activate
-flask db upgrade
-python -m app.seed
-```
-
----
-
-## Références
-
-| Document | Description |
-|---|---|
-| `docs/08-ARCHITECTURE-TECHNIQUE.md` | Architecture globale (VPS vs PythonAnywhere) |
-| `docs/09-BACKEND-FLASK.md` | Structure du backend, Blueprints, services |
-| `docs/11-BASE-DE-DONNEES.md` | Stratégie mono-tenant MySQL vs multi-tenant PostgreSQL |
-| `docs/14-MPD.md` | DDL de référence et notes de compatibilité MySQL |
-| `docs/18-SECURITE.md` | Sécurité : JWT, RBAC, CORS, secrets |
-| `docs/25-DEPLOIEMENT-CICD.md §25.9` | Notes PythonAnywhere dans le guide CI/CD |
-| `docs/27-MODELE-SAAS-MULTITENANT.md` | Multi-tenant PostgreSQL (futur VPS) |
-| `backend/.env.pythonanywhere.example` | Template `.env` complet pour PythonAnywhere |
-| `backend/app/utils/db_dialect.py` | Détection automatique du dialecte DB |
-| `backend/app/utils/tenant.py` | `set_search_path` (no-op sur MySQL) |
-| `backend/app/services/tenant_provisioning.py` | Garde 503 sur MySQL |
+  -e "DROP DATABASE \`<username>\$gescom_bf\`; CREATE DA

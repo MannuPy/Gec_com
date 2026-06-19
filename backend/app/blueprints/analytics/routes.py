@@ -13,10 +13,14 @@ Routes du blueprint `analytics` : tableau de bord avance et endpoints IA/ML
 """
 from __future__ import annotations
 
+from datetime import datetime, date, time, timedelta
+from collections import defaultdict
+
 from flask import current_app, jsonify, request
 
 from app.blueprints.analytics import analytics_bp
-from app.models import MLModel
+from app.extensions import db
+from app.models import MLModel, Sale, SaleStatus, SaleLine, Customer
 from app.services.analytics_service import compute_dashboard, compute_sales_trend
 from app.utils.decorators import require_permission
 
@@ -266,3 +270,204 @@ def trigger_training_body():
 
     result = task.run()
     return jsonify({'status': 'ok', 'model_type': model_type_normalized, 'result': result})
+
+
+# ---------------------------------------------------------------------------
+# Analyse de cohortes clients — Feature E
+# ---------------------------------------------------------------------------
+
+@analytics_bp.get("/cohorts")
+@require_permission("analytics:read")
+def cohort_analysis():
+    """Matrice de retention clients par cohorte d'acquisition.
+
+    Groupe les clients par mois du premier achat, puis calcule le taux de retention
+    (% de clients de la cohorte ayant rachete) pour chaque mois suivant (M+0, M+1, ...).
+
+    Retourne une liste de cohortes :
+      - cohort       : mois YYYY-MM
+      - size         : nombre de clients dans la cohorte
+      - retention    : liste [{"month": 0, "count": n, "rate": 100.0}, ...]
+
+    Parametres GET :
+        months : nombre de mois a analyser (defaut 12)
+    """
+    try:
+        nb_months = max(1, min(int(request.args.get("months", 12)), 24))
+    except ValueError:
+        nb_months = 12
+
+    today = datetime.utcnow().date()
+    start_date = date(today.year, today.month, 1) - timedelta(days=nb_months * 31)
+
+    sales = (
+        db.session.query(Sale.customer_id, Sale.created_at)
+        .filter(
+            Sale.status == SaleStatus.VALIDEE.value,
+            Sale.customer_id.isnot(None),
+            Sale.created_at >= datetime.combine(start_date, time.min),
+        )
+        .order_by(Sale.created_at)
+        .all()
+    )
+
+    if not sales:
+        return jsonify({"cohorts": [], "max_months": 0})
+
+    first_purchase = {}
+    for cid, created_at in sales:
+        mois = created_at.strftime("%Y-%m")
+        if cid not in first_purchase or mois < first_purchase[cid]:
+            first_purchase[cid] = mois
+
+    customer_months = defaultdict(set)
+    for cid, created_at in sales:
+        customer_months[cid].add(created_at.strftime("%Y-%m"))
+
+    cohort_customers = defaultdict(list)
+    for cid, cohort_mois in first_purchase.items():
+        cohort_customers[cohort_mois].append(cid)
+
+    cohorts_sorted = sorted(cohort_customers.keys())
+
+    result_cohorts = []
+    max_months_seen = 0
+    for cohort_mois in cohorts_sorted:
+        members = cohort_customers[cohort_mois]
+        size = len(members)
+        if size == 0:
+            continue
+
+        cy, cm = int(cohort_mois[:4]), int(cohort_mois[5:7])
+
+        retention = []
+        for delta in range(nb_months + 1):
+            target_total = cy * 12 + cm - 1 + delta
+            ty, tm = divmod(target_total, 12)
+            tm += 1
+            target_mois = f"{ty:04d}-{tm:02d}"
+
+            count = sum(1 for cid in members if target_mois in customer_months[cid])
+            rate = round(count / size * 100, 1)
+            retention.append({"month": delta, "month_label": target_mois, "count": count, "rate": rate})
+            if count > 0:
+                max_months_seen = max(max_months_seen, delta)
+
+        result_cohorts.append({
+            "cohort": cohort_mois,
+            "size": size,
+            "retention": retention,
+        })
+
+    return jsonify({
+        "cohorts": result_cohorts,
+        "max_months": max_months_seen,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Customer Lifetime Value (CLV) — Feature F
+# ---------------------------------------------------------------------------
+
+@analytics_bp.get("/clv")
+@require_permission("analytics:read")
+def clv_view():
+    """Valeur vie client (CLV) estimee.
+
+    CLV = panier_moyen x frequence_achats_mensuelle x duree_vie_estimee_mois
+
+    Parametres GET :
+        limit   : nombre max de clients (defaut 50, max 200)
+        min_clv : CLV minimum pour filtrer (defaut 0)
+    """
+    try:
+        limit = max(1, min(int(request.args.get("limit", 50)), 200))
+    except ValueError:
+        limit = 50
+    try:
+        min_clv = float(request.args.get("min_clv", 0))
+    except ValueError:
+        min_clv = 0.0
+
+    rows = (
+        db.session.query(
+            Sale.customer_id,
+            db.func.count(Sale.id).label("nb_commandes"),
+            db.func.sum(Sale.total).label("ca_total"),
+            db.func.min(Sale.created_at).label("premier_achat"),
+            db.func.max(Sale.created_at).label("dernier_achat"),
+        )
+        .filter(
+            Sale.status == SaleStatus.VALIDEE.value,
+            Sale.customer_id.isnot(None),
+        )
+        .group_by(Sale.customer_id)
+        .having(db.func.count(Sale.id) >= 1)
+        .all()
+    )
+
+    if not rows:
+        return jsonify({"items": [], "count": 0, "stats": {"clv_moyen": 0, "clv_median": 0, "clv_max": 0, "clv_min": 0}})
+
+    customer_ids = [r.customer_id for r in rows]
+    customers = {c.id: c for c in Customer.query.filter(Customer.id.in_(customer_ids)).all()}
+
+    clv_list = []
+    for row in rows:
+        customer = customers.get(row.customer_id)
+        if not customer:
+            continue
+
+        ca_total = float(row.ca_total or 0)
+        nb = row.nb_commandes
+        panier_moyen = ca_total / nb if nb else 0
+
+        premier = row.premier_achat
+        dernier = row.dernier_achat
+        if premier and dernier and premier != dernier:
+            delta = (dernier.year - premier.year) * 12 + (dernier.month - premier.month)
+            duree_mois = max(1, delta)
+        else:
+            duree_mois = 1
+
+        frequence_mensuelle = nb / duree_mois
+        duree_vie_estimee_mois = max(24, duree_mois * 2)
+        clv = panier_moyen * frequence_mensuelle * duree_vie_estimee_mois
+
+        if clv < min_clv:
+            continue
+
+        clv_list.append({
+            "customer_id": row.customer_id,
+            "name": customer.full_name,
+            "customer_type": customer.customer_type if hasattr(customer, "customer_type") else "",
+            "nb_commandes": nb,
+            "ca_total": round(ca_total, 2),
+            "panier_moyen": round(panier_moyen, 2),
+            "premier_achat": premier.date().isoformat() if premier else None,
+            "dernier_achat": dernier.date().isoformat() if dernier else None,
+            "duree_mois": duree_mois,
+            "frequence_mensuelle": round(frequence_mensuelle, 3),
+            "clv_estime": round(clv, 2),
+            "duree_vie_estimee_mois": duree_vie_estimee_mois,
+        })
+
+    clv_list.sort(key=lambda x: x["clv_estime"], reverse=True)
+    clv_list = clv_list[:limit]
+
+    if clv_list:
+        clv_values = [c["clv_estime"] for c in clv_list]
+        stats = {
+            "clv_moyen": round(sum(clv_values) / len(clv_values), 2),
+            "clv_median": round(sorted(clv_values)[len(clv_values) // 2], 2),
+            "clv_max": round(max(clv_values), 2),
+            "clv_min": round(min(clv_values), 2),
+        }
+    else:
+        stats = {"clv_moyen": 0, "clv_median": 0, "clv_max": 0, "clv_min": 0}
+
+    return jsonify({
+        "items": clv_list,
+        "count": len(clv_list),
+        "stats": stats,
+    })

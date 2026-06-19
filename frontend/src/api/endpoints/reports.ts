@@ -2,6 +2,7 @@ import { apiClient } from "@/api/client";
 import type { DashboardRealtime, DashboardSummary } from "@/types/dashboard";
 import type { VendeurDashboard } from "@/types/vendeur";
 import type { ComptaSummary } from "@/types/compta";
+import type { BranchesCompare } from "@/types/branches";
 
 export const reportsApi = {
   dashboard: (branchId?: string | null) =>
@@ -50,6 +51,17 @@ export const reportsApi = {
 
   vendeurDashboard: () =>
     apiClient.get<VendeurDashboard>("/reports/vendeur/dashboard").then((r) => r.data),
+
+  branchesCompare: (params: { datDebut?: string; datFin?: string } = {}) => {
+    const p: Record<string, string> = {};
+    if (params.datDebut) p.date_debut = params.datDebut;
+    if (params.datFin) p.date_fin = params.datFin;
+    return apiClient
+      .get<BranchesCompare>("/reports/branches/compare", {
+        params: Object.keys(p).length ? p : undefined,
+      })
+      .then((r) => r.data);
+  },
 
   comptaSummary: (params: { branchId?: string; datDebut?: string; datFin?: string } = {}) => {
     const p: Record<string, string> = {};

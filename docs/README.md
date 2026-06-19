@@ -82,10 +82,4 @@ Cette documentation (32 fichiers) couvre l'intégralité du cycle de conception 
 ## Comment lire cette documentation
 
 - **Pour une vue d'ensemble rapide** : 00, 01, 31.
-- **Pour la modélisation (jury Merise/UML)** : 06, 07, 12, 13, 14.
-- **Pour l'implémentation technique** : 08, 09, 10, 16, 17, 18.
-- **Pour le module IA** : 19, 20, 21.
-- **Pour la soutenance "innovation & vision produit"** : 26, 27, 29, 31.
-- **Pour déployer en production (PythonAnywhere + MySQL)** : **32**, puis 25 §25.9, puis `backend/.env.pythonanywhere.example`.
-
-Tous les diagrammes sont au format **Mermaid** (rendu natif dans VS Code, GitHub, GitLab et la plupart des éditeurs Markdown).
+- 

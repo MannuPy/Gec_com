@@ -183,5 +183,4 @@ VitePWA({
 ## 26.10 Limites assumées et perspectives
 
 - Le mode offline couvre la **vente au comptoir** (UC-11) ; les opérations de gestion (réceptions, transferts, inventaires) nécessitent une connexion (compromis de complexité, documenté comme hors-périmètre V1 dans `01-INTRODUCTION.md`).
-- La taille du cache IndexedDB est dimensionnée pour ~20 000 produits (RNF-05) ; au-delà, une stratégie de pagination/cache partiel par catégorie serait nécessaire (perspective V2, cf. `31-CONCLUSION-PERSPECTIVES.md`).
-- Les tests de ce module sont détaillés en `24-PLAN-DE-TESTS.md` (E2E-05, T-SYNC-01 à T-SYNC-03).
+- La taille du cache IndexedDB est dimensionnée pour ~20 000 produits (RNF-05) ; au-delà, une stratégie de pagination/cache partiel par c

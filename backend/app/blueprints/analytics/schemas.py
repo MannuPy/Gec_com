@@ -34,5 +34,4 @@ class MLModelSchema(Schema):
     algorithm = fields.String()
     metrics = fields.Raw()
     mlflow_run_id = fields.String(allow_none=True)
-    trained_at = fields.String()
-    is_active = fields.Boolean()
+    trained_at = fields.String

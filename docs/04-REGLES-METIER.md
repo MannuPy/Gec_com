@@ -79,4 +79,4 @@ Les règles de gestion (RG) sont la traduction opérationnelle des exigences fon
 | `remise IN (0, 5, 10, 15, 20)` | Contrainte CHECK + validation Marshmallow |
 | `prix_vente_technicien <= prix_vente_client_simple <= ... ` selon RG-09/RG-10 | Contrainte CHECK |
 | Vente validée immuable | Pas d'endpoint PUT/PATCH sur vente validée |
-| 1 dépôt central / entreprise | Contrainte unique partielle (`type='DEPOT_CENTRAL'`) |
+| 1 dép�

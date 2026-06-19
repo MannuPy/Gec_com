@@ -130,8 +130,4 @@ jobs:
       - run: npx playwright test
   security-scan:
     steps:
-      - run: pip-audit
-      - run: npm audit --audit-level=high
-```
-
-Détails complets de la pipeline CI/CD : `25-DEPLOIEMENT-CICD.md`.
+     

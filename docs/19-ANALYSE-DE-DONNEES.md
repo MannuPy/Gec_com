@@ -76,4 +76,4 @@ Pour chaque modèle, une justification est fournie à l'administrateur :
 | Taux de couverture du stock | stock disponible / demande prévue 30j | Dashboard |
 | Taux de remise hors-norme détecté | anomalies remises / total remises | Dashboard, Audit |
 | Score moyen de solvabilité | moyenne `credit_score` clients actifs | Dashboard |
-| Valeur immobilisée par classe ABC | somme(stock × prix_achat) par classe | Rapport ABC/XYZ |
+| Valeur immobilis�

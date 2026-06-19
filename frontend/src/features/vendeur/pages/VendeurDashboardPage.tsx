@@ -261,166 +261,133 @@ export default function VendeurDashboardPage() {
         </div>
       </section>
 
-      {/* ---- Graphiques ---- */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Historique du jour par heure */}
-        <div className="rounded-xl border border-surface bg-white p-4 shadow-sm">
-          <h2 className="mb-4 text-sm font-semibold text-primary-dark">
-            Ventes du jour par heure
+      {/* ---- Historique des ventes du jour par heure ---- */}
+      {historique.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
+            Ventes par heure (aujourd'hui)
           </h2>
-          {historique.every((h) => h.ca === 0) ? (
-            <p className="flex h-40 items-center justify-center text-sm text-muted">
-              Aucune vente enregistrée aujourd'hui.
-            </p>
-          ) : (
+          <div className="rounded-xl border border-surface bg-white p-4 shadow-sm">
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={historique} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="vendeurGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0439D9" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#0439D9" stopOpacity={0} />
+                  <linearGradient id="caGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#2563EB" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#2563EB" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis
-                  dataKey="heure"
-                  tickFormatter={fmtHeure}
-                  tick={{ fontSize: 11 }}
-                  interval={2}
-                />
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
+                <XAxis dataKey="heure" tickFormatter={(h) => fmtHeure(h as number)} tick={{ fontSize: 11 }} />
                 <YAxis
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => (v >= 1000 ? Math.round(v / 1000) + "k" : String(v))}
-                  width={40}
+                  tick={{ fontSize: 10 }}
+                  tickFormatter={(v) => new Intl.NumberFormat("fr-FR", { notation: "compact" }).format(v as number)}
                 />
                 <Tooltip
-                  formatter={(v) => [fmt(v as number), "CA"]}
                   labelFormatter={(label) => fmtHeure(label as number)}
+                  formatter={(v) => [fmt(v as number), "CA"]}
                 />
                 <Area
                   type="monotone"
                   dataKey="ca"
-                  stroke="#0439D9"
+                  stroke="#2563EB"
                   strokeWidth={2}
-                  fill="url(#vendeurGradient)"
-                  dot={false}
-                  activeDot={{ r: 4 }}
+                  fill="url(#caGrad)"
                 />
               </AreaChart>
             </ResponsiveContainer>
-          )}
-        </div>
+          </div>
+        </section>
+      )}
 
-        {/* Top produits du mois */}
-        <div className="rounded-xl border border-surface bg-white p-4 shadow-sm">
-          <h2 className="mb-4 text-sm font-semibold text-primary-dark">
-            Top 5 produits (ce mois)
+      {/* ---- Top 5 produits du mois ---- */}
+      {top_produits_mois.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
+            Top 5 produits ce mois
           </h2>
-          {top_produits_mois.length === 0 ? (
-            <p className="flex h-40 items-center justify-center text-sm text-muted">
-              Aucune vente ce mois-ci.
-            </p>
-          ) : (
-            <ResponsiveContainer width="100%" height={200}>
+          <div className="rounded-xl border border-surface bg-white p-4 shadow-sm">
+            <ResponsiveContainer width="100%" height={180}>
               <BarChart
-                data={top_produits_mois}
+                data={top_produits_mois.slice(0, 5)}
                 layout="vertical"
-                margin={{ top: 0, right: 10, left: 0, bottom: 0 }}
+                margin={{ top: 0, right: 20, left: 60, bottom: 0 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" horizontal={false} />
                 <XAxis
                   type="number"
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => (v >= 1000 ? Math.round(v / 1000) + "k" : String(v))}
+                  tick={{ fontSize: 10 }}
+                  tickFormatter={(v) => new Intl.NumberFormat("fr-FR", { notation: "compact" }).format(v as number)}
                 />
                 <YAxis
                   type="category"
-                  dataKey="name"
-                  width={90}
+                  dataKey="product_name"
                   tick={{ fontSize: 10 }}
-                  tickFormatter={(v: string) => (v.length > 14 ? v.slice(0, 13) + "…" : v)}
+                  width={60}
+                  tickFormatter={(v: string) => v.length > 10 ? v.slice(0, 9) + "…" : v}
                 />
                 <Tooltip
                   formatter={(_v, _name, p) => [
-                    p.payload.qte_vendue + " unités — " + fmt(p.payload.ca),
-                    p.payload.name,
+                    fmt((p.payload as VendeurTopProduit).total_ca),
+                    "CA",
                   ]}
                 />
-                <Bar
-                  dataKey="qte_vendue"
-                  fill="#0439D9"
-                  radius={[0, 4, 4, 0]}
-                />
+                <Bar dataKey="total_ca" fill="#10B981" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          )}
-        </div>
-      </div>
+          </div>
+        </section>
+      )}
 
       {/* ---- Dernières ventes ---- */}
-      <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
-          Dernières ventes
-        </h2>
-        {dernieres_ventes.length === 0 ? (
-          <p className="rounded-xl border border-surface bg-white p-6 text-center text-sm text-muted">
-            Aucune vente enregistrée pour l'instant.
-          </p>
-        ) : (
-          <div className="overflow-hidden rounded-xl border border-surface bg-white shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-primary-dark text-white">
-                  <tr>
-                    <th className="px-4 py-3 text-left font-medium">Référence</th>
-                    <th className="px-4 py-3 text-left font-medium">Date</th>
-                    <th className="px-4 py-3 text-left font-medium">Client</th>
-                    <th className="px-4 py-3 text-left font-medium">Paiement</th>
-                    <th className="px-4 py-3 text-right font-medium">Articles</th>
-                    <th className="px-4 py-3 text-right font-medium">Total</th>
+      {dernieres_ventes.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted">
+            Dernières ventes
+          </h2>
+          <div className="overflow-x-auto rounded-xl border border-surface bg-white shadow-sm">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-surface bg-surface/50">
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                    Date
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                    Réf.
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                    Client
+                  </th>
+                  <th className="px-3 py-2 text-right text-xs font-semibold uppercase tracking-wide text-muted">
+                    Total
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted">
+                    Paiement
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {dernieres_ventes.map((v: VendeurDerniereVente) => (
+                  <tr key={v.id} className="border-b border-surface last:border-0 hover:bg-surface/30">
+                    <td className="whitespace-nowrap px-3 py-2 text-xs text-muted">
+                      {fmtDate(v.created_at)}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-primary-dark">{v.reference}</td>
+                    <td className="px-3 py-2 text-xs text-primary-dark">
+                      {v.customer_name || <span className="text-muted italic">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right text-xs font-semibold text-primary-dark">
+                      {fmt(v.total)}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-muted">
+                      {PAYMENT_LABELS[v.payment_type] ?? v.payment_type}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-surface">
-                  {dernieres_ventes.map((vente: VendeurDerniereVente, i: number) => (
-                    <tr
-                      key={vente.id}
-                      className={i % 2 === 0 ? "bg-white" : "bg-gray-50/50"}
-                    >
-                      <td className="px-4 py-3 font-mono text-xs text-primary-dark">
-                        {vente.reference}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-3 text-muted">
-                        {fmtDate(vente.created_at)}
-                      </td>
-                      <td className="px-4 py-3 text-muted">
-                        {vente.customer_name ?? <span className="italic">Comptoir</span>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={
-                            "inline-flex rounded-full px-2 py-0.5 text-xs font-medium " +
-                            (vente.payment_type === "CREDIT"
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-green-100 text-green-700")
-                          }
-                        >
-                          {PAYMENT_LABELS[vente.payment_type] ?? vente.payment_type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right text-muted">
-                        {vente.nb_lignes}
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold text-primary-dark">
-                        {fmt(vente.total)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
-      </section>
+        </section>
+      )}
     </div>
   );
 }

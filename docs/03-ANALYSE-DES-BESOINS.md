@@ -116,5 +116,4 @@
 | Dépôt & Transferts | RF-12 à RF-14 | `05-ARCHITECTURE-FONCTIONNELLE.md` |
 | Ventes | RF-15 à RF-20 | `06-CAS-DUTILISATION.md`, `26-GESTION-OFFLINE-PWA.md` |
 | Inventaires | RF-21 à RF-23 | `11-BASE-DE-DONNEES.md` |
-| Rapports & IA | RF-24 à RF-29 | `19-ANALYSE-DE-DONNEES.md`, `20-MACHINE-LEARNING.md`, `22-DASHBOARD-BI.md` |
-| Audit | RF-30 à RF-32 | `28-MONITORING-OBSERVABILITE.md` |
+| Rapports & IA | RF-24 à RF-29 | `19-ANALYSE-DE-DONNEE

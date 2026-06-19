@@ -272,4 +272,4 @@ Script `ml/training/generate_synthetic_data.py` :
 
 ## 20.7 Registre des modèles et traçabilité (rappel)
 
-Chaque exécution d'entraînement crée une entrée dans `ml_models` (type, version, métriques, chemin d'artefact MLflow) référencée par chaque `predictions.model_id` — garantissant que **toute prédiction est traçable jusqu'au modèle et aux données qui l'ont produite** (RNF-17, RG-40). Détails dans `21-PIPELINE-ETL.md`.
+Chaque exécution d'entraînement crée une entrée dans `m

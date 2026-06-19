@@ -123,35 +123,4 @@ L'application web est packagée en **PWA** : manifest, Service Worker (Workbox),
 ```mermaid
 flowchart TB
     subgraph "Option A — VPS / Docker Compose"
-        N[nginx:alpine]
-        F[frontend - build statique servi par nginx]
-        A1[api - gunicorn:flask]
-        A2[worker - celery]
-        A3[beat - celery beat]
-        D[(postgres:16)]
-        R[(redis:7)]
-    end
-    subgraph "Option B — PythonAnywhere (MySQL, mono-tenant)"
-        PA_WEB[uWSGI Flask app]
-        PA_DB[(MySQL managé)]
-        PA_TASKS[Scheduled Tasks - flask etl-daily / ml-train-all]
-        PA_STATIC[Static Files - frontend dist]
-    end
-    subgraph Externe
-        S3[(Stockage objet - backups, exports PDF)]
-        MAIL[Service SMTP - notifications]
-    end
-    N --> F
-    N --> A1
-    A1 --> D
-    A1 --> R
-    A2 --> D
-    A2 --> R
-    A3 --> A2
-    A2 -->|backup quotidien| S3
-    A1 -->|export PDF| S3
-    A1 -.-> MAIL
-    PA_WEB --> PA_DB
-    PA_TASKS --> PA_DB
-    PA_WEB --> PA_STATIC
-```
+  

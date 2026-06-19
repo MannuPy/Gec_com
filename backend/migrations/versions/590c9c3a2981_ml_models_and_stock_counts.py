@@ -92,7 +92,4 @@ def downgrade():
 
     op.drop_table('predictions')
     with op.batch_alter_table('ml_models', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_ml_models_model_type'))
-
-    op.drop_table('ml_models')
-    # ### end Alembic commands ###
+        batch_op.drop_index(batch_op.f('

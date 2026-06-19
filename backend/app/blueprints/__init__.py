@@ -1,1 +1,1 @@
-"""Paquet regroupant les Blueprints Flask de l'API GesCom-BF (cf. 09-BACKEND-FLASK.md)."""
+"""Paquet regroupant les Blueprints Flask de l'API GesCom-BF (cf. 09-BACKEND-FLASK.md)."""
