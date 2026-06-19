@@ -214,7 +214,7 @@ export default function CreditsPage() {
   function handleSettle(amount: number, note: string) {
     if (!modal) return;
     settle.mutate(
-      { customerId: modal.customer.id, payload: { amount, note: note || undefined } },
+      { customerId: modal.customer.id, payload: { amount: String(amount), note: note || undefined } },
       { onSuccess: () => setModal(null) }
     );
   }
@@ -333,7 +333,7 @@ export default function CreditsPage() {
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                 <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={60} />
-                <Tooltip formatter={(v: number) => [`${v.toLocaleString("fr-FR")} FCFA`, "Encours"]} />
+                <Tooltip formatter={(v) => [`${(v as number).toLocaleString("fr-FR")} FCFA`, "Encours"]} />
                 <Bar dataKey="encours" fill="#0439D9" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>

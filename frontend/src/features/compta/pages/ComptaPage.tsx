@@ -241,9 +241,9 @@ export default function ComptaPage() {
                 width={45}
               />
               <Tooltip
-                formatter={(v: number, name: string) => [fmt(v), name]}
-                labelFormatter={(label: string) =>
-                  new Date(label).toLocaleDateString("fr-FR", {
+                formatter={(v, name) => [fmt(v as number), String(name)]}
+                labelFormatter={(label) =>
+                  new Date(String(label)).toLocaleDateString("fr-FR", {
                     weekday: "short",
                     day: "2-digit",
                     month: "short",

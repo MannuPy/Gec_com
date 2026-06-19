@@ -294,8 +294,8 @@ export default function VendeurDashboardPage() {
                   width={40}
                 />
                 <Tooltip
-                  formatter={(v: number) => [fmt(v), "CA"]}
-                  labelFormatter={fmtHeure}
+                  formatter={(v) => [fmt(v as number), "CA"]}
+                  labelFormatter={(label) => fmtHeure(label as number)}
                 />
                 <Area
                   type="monotone"
@@ -341,7 +341,7 @@ export default function VendeurDashboardPage() {
                   tickFormatter={(v: string) => (v.length > 14 ? v.slice(0, 13) + "…" : v)}
                 />
                 <Tooltip
-                  formatter={(v: number, _: string, p) => [
+                  formatter={(_v, _name, p) => [
                     p.payload.qte_vendue + " unités — " + fmt(p.payload.ca),
                     p.payload.name,
                   ]}
