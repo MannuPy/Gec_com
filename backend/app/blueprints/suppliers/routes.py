@@ -198,16 +198,19 @@ def validate_reception(reception_id: str):
             created_by_id=get_jwt_identity(),
             comment=f"Réception {reception.reference}",
         )
+
         line.product.purchase_price = line.unit_purchase_price
 
-    reception.status = "VALIDE"
+    reception.status = ReceptionStatus.VALIDEE.value
+    reception.received_at = datetime.utcnow()
+    reception.received_by_id = get_jwt_identity()
+
     AuditLog.record(
         event_type="RECEPTION_VALIDATED",
         user_id=get_jwt_identity(),
-        entity_type="Reception",
-        entity_id=str(reception.id),
+        entity_type="SupplierReception",
+        entity_id=reception.id,
         description=f"Reception {reception.reference} validee.",
     )
     db.session.commit()
-    from app.blueprints.suppliers.schemas import ReceptionSchema
-    return jsonify(ReceptionSchema().dump(reception)), 200
+    return jsonify(reception_schema.dump(reception))

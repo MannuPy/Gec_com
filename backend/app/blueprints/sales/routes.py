@@ -315,4 +315,113 @@ def update_customer_payment(customer_id: str, payment_id: str):
     return jsonify(CustomerPaymentSchema().dump(payment)), 200
 
 
-# ------------------------------------
+# ---------------------------------------------------------------------------
+# Avoirs (retours) — gestion admin
+# ---------------------------------------------------------------------------
+
+@sales_bp.get('/refunds/pending')
+@require_permission('sales:refund')
+def list_pending_refunds():
+    """Liste les avoirs en attente d'approbation (admin)."""
+    from app.models import SaleStatus as _SS
+    sales = (
+        Sale.query.filter(Sale.status == _SS.EN_ATTENTE_APPROBATION.value)
+        .order_by(Sale.created_at.desc())
+        .all()
+    )
+    return jsonify(sales_schema.dump(sales))
+
+
+@sales_bp.patch('/<string:sale_id>/refund/approve')
+@require_permission('sales:refund')
+def approve_refund_route(sale_id: str):
+    """Approuve un avoir en attente et reintegre le stock (RG-27)."""
+    refund = Sale.query.get(sale_id)
+    if refund is None:
+        raise not_found('Avoir', sale_id)
+    updated = approve_refund(refund, admin_id=get_jwt_identity())
+    return jsonify(sale_schema.dump(updated))
+
+
+@sales_bp.patch('/<string:sale_id>/refund/reject')
+@require_permission('sales:refund')
+def reject_refund_route(sale_id: str):
+    """Rejette un avoir en attente."""
+    refund = Sale.query.get(sale_id)
+    if refund is None:
+        raise not_found('Avoir', sale_id)
+    payload = request.get_json(silent=True) or {}
+    reason = payload.get('reason', '')
+    updated = reject_refund(refund, admin_id=get_jwt_identity(), reason=reason)
+    return jsonify(sale_schema.dump(updated))
+
+
+# ---------------------------------------------------------------------------
+# Encours clients (credits)
+# ---------------------------------------------------------------------------
+
+@sales_bp.get('/credits')
+@require_permission('customers:read', 'sales:read')
+def list_credits():
+    """Liste les clients ayant un encours de credit non nul (credit_balance > 0)."""
+    from decimal import Decimal as _D
+    query = Customer.query
+
+    branch_id = request.args.get('branch_id')
+    if branch_id:
+        # Filtrer par site via les ventes a credit de ce client
+        query = query.filter(Customer.credit_balance > _D('0'))
+    else:
+        query = query.filter(Customer.credit_balance > _D('0'))
+
+    customer_type = request.args.get('customer_type')
+    if customer_type:
+        query = query.filter(Customer.customer_type == customer_type)
+
+    customers = query.order_by(Customer.credit_balance.desc()).all()
+    return jsonify(customers_schema.dump(customers))
+
+
+@sales_bp.post('/customers/<string:customer_id>/settle')
+@require_permission('customers:write', 'sales:create')
+def settle_credit(customer_id: str):
+    """Enregistre un remboursement partiel ou total de l'encours d'un client (RF-26).
+
+    Payload : { amount: string (Decimal), note?: string }
+    """
+    from decimal import Decimal as _D, InvalidOperation
+    customer = Customer.query.get(customer_id)
+    if customer is None:
+        raise not_found('Client', customer_id)
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        amount = _D(str(payload.get('amount', '0')))
+    except InvalidOperation:
+        from app.utils.errors import validation_error
+        raise validation_error('Montant invalide.', details={'amount': payload.get('amount')})
+
+    if amount <= 0:
+        from app.utils.errors import validation_error
+        raise validation_error('Le montant doit etre positif.', details={'amount': str(amount)})
+
+    if amount > customer.credit_balance:
+        amount = customer.credit_balance
+
+    customer.credit_balance = max(_D('0'), customer.credit_balance - amount)
+
+    AuditLog.record(
+        event_type='CREDIT_SETTLED',
+        user_id=get_jwt_identity(),
+        entity_type='Customer',
+        entity_id=customer.id,
+        description=f"Reglement de {amount} FCFA sur l'encours de {customer.full_name}. Nouvel encours : {customer.credit_balance} FCFA.",
+        metadata={'amount': str(amount), 'note': payload.get('note', '')},
+    )
+    db.session.commit()
+
+    return jsonify({
+        'customer_id': customer.id,
+        'amount_settled': str(amount),
+        'new_credit_balance': str(customer.credit_balance),
+    })

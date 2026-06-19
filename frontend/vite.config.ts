@@ -90,6 +90,11 @@ export default defineConfig({
       "/api": {
         target: process.env.VITE_API_PROXY_TARGET || "http://localhost:5000",
         changeOrigin: true,
+        // timeout: 0 = pas de timeout — requis pour les connexions SSE
+        // longues (GET /reports/dashboard/stream). Sans ce parametre, le
+        // proxy Vite ferme la connexion apres ~2 min, ce qui provoque une
+        // boucle de reconnexions et l'accumulation de flux concurrents.
+        timeout: 0,
       },
     },
   },

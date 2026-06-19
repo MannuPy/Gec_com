@@ -217,3 +217,52 @@ def trigger_training(model_type: str):
 
     result = task.run()
     return jsonify({"status": "ok", "model_type": model_type_normalized, "result": result})
+
+
+@analytics_bp.post('/ml/train')
+@require_permission('ml:train')
+def trigger_training_body():
+    """
+    Variante de trigger_training acceptant le type de modele dans le corps JSON.
+
+    Payload : { model_type: str, async?: bool }
+
+    Alias pour compatibilite avec le client frontend qui envoie le type dans
+    le corps de la requete plutot qu'en parametre d'URL.
+    """
+    from app.tasks.ml_tasks import TRAIN_FUNCTIONS
+
+    payload = request.get_json(silent=True) or {}
+    model_type = payload.get('model_type', '')
+    model_type_normalized = model_type.upper()
+
+    if not model_type_normalized or model_type_normalized not in TRAIN_FUNCTIONS:
+        return (
+            jsonify({
+                'error': 'VALIDATION_ERROR',
+                'message': 'Type de modele manquant ou inconnu. Valeurs possibles : ' + ', '.join(sorted(TRAIN_FUNCTIONS)),
+            }),
+            400,
+        )
+
+    task = TRAIN_FUNCTIONS[model_type_normalized]
+    use_async = payload.get('async', False) or request.args.get('async', 'false').lower() in ('1', 'true', 'yes')
+
+    if use_async:
+        try:
+            async_result = task.delay()
+            return (
+                jsonify({'status': 'queued', 'task_id': async_result.id, 'model_type': model_type_normalized}),
+                202,
+            )
+        except Exception as exc:
+            current_app.logger.warning(
+                "Celery/Redis indisponible (%s) ; execution synchrone de l'entrainement %s.",
+                exc,
+                model_type_normalized,
+            )
+            result = task.run()
+            return jsonify({'status': 'ok', 'model_type': model_type_normalized, 'result': result})
+
+    result = task.run()
+    return jsonify({'status': 'ok', 'model_type': model_type_normalized, 'result': result})

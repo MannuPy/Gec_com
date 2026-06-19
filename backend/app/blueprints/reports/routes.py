@@ -38,19 +38,33 @@ def dashboard_summary():
     nb = len(sales)
     panier = ca / nb if nb else 0
 
-    low_stock_query = Stock.query.filter(Stock.quantity <= Stock.low_stock_threshold)
+    low_stock_query = (
+        Stock.query
+        .join(Product, Stock.product_id == Product.id)
+        .filter(Stock.quantity <= Product.min_stock_threshold)
+    )
     if branch_id:
         low_stock_query = low_stock_query.filter(Stock.branch_id == branch_id)
     low_stock = low_stock_query.count()
 
-    return jsonify(
-        {
-            "ca_jour": ca,
-            "nb_ventes": nb,
-            "panier_moyen": panier,
-            "alertes_stock": low_stock,
-        }
-    )
+    # Top produits du jour (par quantite vendue, pour le tableau de bord RF-23)
+    top_products = top_products_for_period(branch_id=branch_id, days=1, limit=5)
+
+    return jsonify({
+        "sales_today_total": str(round(ca, 2)),
+        "sales_today_count": nb,
+        "average_basket": str(round(panier, 2)),
+        "low_stock_count": low_stock,
+        "top_products_today": [
+            {
+                "product_id": p["product_id"],
+                "name": p["product_name"],
+                "sku": p["sku"],
+                "quantity_sold": p["total_quantity"],
+            }
+            for p in top_products
+        ],
+    })
 
 
 @reports_bp.get("/dashboard/realtime")
@@ -67,6 +81,17 @@ def dashboard_realtime():
 def dashboard_stream():
     """Flux temps reel (Server-Sent Events) du tableau de bord (section 22.2)."""
     branch_id = request.args.get("branch_id")
+
+    if current_app.config.get("DISABLE_SSE"):
+        payload = compute_dashboard_realtime(branch_id=branch_id)
+        def single_shot():
+            yield "event: sse-disabled\ndata: {}\n\n"
+            yield "data: " + json.dumps(payload) + "\n\n"
+        return Response(
+            stream_with_context(single_shot()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     def generate():
         try:
@@ -281,8 +306,8 @@ def export_stock_excel():
             p.sku if p else "",
             s.branch.name if s.branch else "",
             s.quantity,
-            s.low_stock_threshold,
-            float(p.price_simple if p else 0) * s.quantity,
+            p.min_stock_threshold if p else 0,
+            float(p.simple_price if p else 0) * s.quantity,
         ])
     for i, _ in enumerate(headers, 1):
         ws.column_dimensions[get_column_letter(i)].auto_size = True

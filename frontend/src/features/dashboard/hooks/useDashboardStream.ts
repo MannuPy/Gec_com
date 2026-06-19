@@ -16,7 +16,7 @@ interface DashboardStreamState {
 
 /**
  * Tableau de bord temps reel (RF-24/RF-25/RF-26/RF-28, doc
- * 22-DASHBOARD-BI.md §22.2/§22.5 - adapte en SSE/polling, cf. decision
+ * 22-DASHBOARD-BI.md section 22.2/22.5 - adapte en SSE/polling, cf. decision
  * projet : pas de WebSocket/Redis).
  *
  * Consomme `GET /reports/dashboard/stream` (Server-Sent Events) via
@@ -35,10 +35,8 @@ export function useDashboardStream(branchId?: string | null): DashboardStreamSta
   const [isLive, setIsLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Evite de demarrer plusieurs flux/polls concurrents lors des re-renders.
-  const activeRef = useRef(false);
-  // Reflete `isLive` de facon synchrone pour la boucle de polling (le
-  // polling ne sert que de repli quand le flux SSE n'est pas actif).
+  // isLiveRef reflete `isLive` de facon synchrone pour la boucle de polling
+  // (le polling ne sert que de repli quand le flux SSE n'est pas actif).
   const isLiveRef = useRef(false);
 
   useEffect(() => {
@@ -46,14 +44,27 @@ export function useDashboardStream(branchId?: string | null): DashboardStreamSta
       return;
     }
 
-    activeRef.current = true;
+    // CORRECTION BUG REACT 18 STRICT MODE :
+    // Variable de closure LOCALE (pas un useRef). Chaque invocation de
+    // l'effet obtient son propre `isActive` independant.
+    //
+    // Avec useRef, le bug est : cleanup de la 1ere invocation ecrit
+    // ref.current = false, PUIS le 2e effet ecrit ref.current = true,
+    // et les boucles async de la 1ere invocation (toujours actives a cause
+    // du race) voient true et continuent => connexions SSE en double.
+    //
+    // Avec une variable de closure, chaque invocation a sa propre copie :
+    // cleanup met isActive = false (sa copie), la 2e invocation a isActive
+    // = true (sa propre copie). Les boucles de la 1ere s'arretent
+    // correctement, sans affecter la 2e.
+    let isActive = true;
     isLiveRef.current = false;
     let abortController: AbortController | null = null;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const applyPayload = (payload: DashboardRealtime, live: boolean) => {
-      if (!activeRef.current) return;
+      if (!isActive) return;
       setData(payload);
       setIsLoading(false);
       setIsLive(live);
@@ -62,16 +73,16 @@ export function useDashboardStream(branchId?: string | null): DashboardStreamSta
     };
 
     const poll = async () => {
-      while (activeRef.current) {
+      while (isActive) {
         await new Promise((resolve) => {
           pollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
         });
-        if (!activeRef.current || isLiveRef.current) continue;
+        if (!isActive || isLiveRef.current) continue;
         try {
           const payload = await reportsApi.realtime(branchId);
           applyPayload(payload, false);
         } catch {
-          if (activeRef.current) {
+          if (isActive) {
             setIsLoading(false);
             setError("Impossible de charger les indicateurs temps reel.");
           }
@@ -100,7 +111,7 @@ export function useDashboardStream(branchId?: string | null): DashboardStreamSta
         // POLL_INTERVAL_MS avant de se reconnecter pour eviter une boucle rapide.
         let sseDisabled = false;
 
-        while (activeRef.current) {
+        while (isActive) {
           const { value, done } = await reader.read();
           if (done) break;
 
@@ -117,7 +128,7 @@ export function useDashboardStream(branchId?: string | null): DashboardStreamSta
 
             if (eventType === "sse-disabled") {
               // Backend en mode mono-shot : fermeture immediate apres 1 snapshot.
-              // Basculer sur polling pur et attendre avant de ré-essayer le SSE.
+              // Basculer sur polling pur et attendre avant de re-essayer le SSE.
               sseDisabled = true;
               setIsLive(false);
               isLiveRef.current = false;
@@ -137,27 +148,26 @@ export function useDashboardStream(branchId?: string | null): DashboardStreamSta
           if (sseDisabled) break;
         }
 
-        // Le flux se termine normalement (DASHBOARD_STREAM_MAX_EVENTS atteint)
-        // ou via sse-disabled (mode DISABLE_SSE=true).
-        if (activeRef.current) {
+        // Le flux se termine normalement ou via sse-disabled.
+        // On attend toujours RECONNECT_DELAY_MS avant de rouvrir pour eviter
+        // une boucle de connexions rapides si le flux se ferme immediatement.
+        if (isActive) {
+          const delay = sseDisabled ? POLL_INTERVAL_MS : RECONNECT_DELAY_MS;
           if (sseDisabled) {
-            // Attendre POLL_INTERVAL_MS pour eviter une boucle de connexions
-            // rapides : le backend se fermera a nouveau immediatement.
-            reconnectTimer = setTimeout(() => {
-              if (activeRef.current) connectStream();
-            }, POLL_INTERVAL_MS);
-          } else {
-            // Flux SSE complet clos normalement : reconnexion directe.
-            connectStream();
+            setIsLive(false);
+            isLiveRef.current = false;
           }
+          reconnectTimer = setTimeout(() => {
+            if (isActive) connectStream();
+          }, delay);
         }
       } catch {
-        if (!activeRef.current) return;
+        if (!isActive) return;
         // Repli sur le polling, puis nouvelle tentative SSE plus tard.
         setIsLive(false);
         isLiveRef.current = false;
         reconnectTimer = setTimeout(() => {
-          if (activeRef.current) connectStream();
+          if (isActive) connectStream();
         }, RECONNECT_DELAY_MS);
       }
     };
@@ -174,7 +184,7 @@ export function useDashboardStream(branchId?: string | null): DashboardStreamSta
       });
 
     return () => {
-      activeRef.current = false;
+      isActive = false;
       abortController?.abort();
       if (pollTimer) clearTimeout(pollTimer);
       if (reconnectTimer) clearTimeout(reconnectTimer);

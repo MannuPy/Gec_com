@@ -27,6 +27,7 @@ celery_app = Celery("gescom_bf")
 def init_celery(app) -> Celery:
     """Configure l'instance Celery globale a partir de l'app Flask."""
     celery_app.conf.update(
+        broker_connection_retry_on_startup=True,
         broker_url=app.config["CELERY_BROKER_URL"],
         result_backend=app.config["CELERY_RESULT_BACKEND"],
         timezone="UTC",
@@ -74,5 +75,6 @@ def init_celery(app) -> Celery:
         def __call__(self, *args, **kwargs):
             with app.app_context():
                 return self.run(*args, **kwargs)
+
     celery_app.Task = ContextTask
     return celery_app

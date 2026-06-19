@@ -166,7 +166,9 @@ def list_audit_logs():
 
     return jsonify({
         "data": audit_log_schema.dump(pagination.items),
-        "total": pagination.total,
-        "page": page,
-        "per_page": per_page,
+        "meta": {
+            "page": pagination.page,
+            "per_page": pagination.per_page,
+            "total": pagination.total,
+        },
     })

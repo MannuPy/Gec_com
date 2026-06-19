@@ -59,7 +59,7 @@ services:
     volumes:
       - ./backend:/app
     command: >
-      sh -c "flask db upgrade && python -m app.seed && flask run --host=0.0.0.0 --port=5000"
+      sh -c "flask db upgrade && python -m app.seed && flask run --host=0.0.0.0 --port=5000 --no-reload"
 
   # ---- Machine Learning : worker Celery (entrainements/inferences) ----
   # cf. 20-MACHINE-LEARNING.md sect. 20.7, 21-PIPELINE-ETL.md

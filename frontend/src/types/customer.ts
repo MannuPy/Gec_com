@@ -20,27 +20,21 @@ export interface CustomerWritePayload {
   credit_limit?: string;
 }
 
-// ---- Crédits ----
+/** Payload pour régler (partiellement ou totalement) l'encours d'un client. */
+export interface CreditSettlePayload {
+  amount: string;
+  note?: string;
+}
 
+/** Réponse du endpoint POST /sales/customers/:id/settle */
+export interface CreditSettleResponse {
+  customer_id: string;
+  amount_settled: string;
+  new_credit_balance: string;
+}
+
+/** Filtres pour GET /sales/credits (liste des clients avec encours non nul). */
 export interface CreditListParams {
   branch_id?: string;
-  customer_type?: CustomerType;
-  category_id?: string;
-}
-
-export interface CreditSettlePayload {
-  amount: number;
-  note?: string;
-  paid_date?: string;
-}
-
-export interface CreditSettleResponse {
-  customer: Customer;
-  payment: {
-    id: string;
-    amount: string;
-    paid_date: string;
-    status: string;
-    note: string | null;
-  };
+  customer_type?: string;
 }
