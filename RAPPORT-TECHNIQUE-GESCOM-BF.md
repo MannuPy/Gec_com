@@ -555,58 +555,210 @@ Retour connexion : Background Sync API déclenche
 
 ## 10. Module Analyse de données et Intelligence Artificielle
 
-C'est le **cœur différenciant** du projet. Il transforme les données opérationnelles en aide à la décision via 5 modèles/techniques complémentaires.
+C'est le **cœur différenciant** du projet. Il ne s'agit pas d'une surcouche optionnelle, mais d'une réponse directe aux problèmes concrets du commerce burkinabè : imprévisibilité des stocks, crédit accordé sans filet, fraudes non détectées, absence de vision globale. Cette section présente les besoins analytiques, leur contextualisation africaine, l'implémentation technique de chaque module, et des propositions d'amélioration pour les versions futures.
 
-### 10.1 Vue d'ensemble des modèles
+---
 
-| Modèle | Algorithme | Type | Granularité | Fréquence |
-|---|---|---|---|---|
-| Prévision de demande | **Prophet + XGBoost** | Série temporelle | (produit, boutique) | Hebdomadaire |
-| Scoring de solvabilité | **Random Forest + Régression Logistique** | Classification binaire | Client | Quotidienne |
-| Détection d'anomalies | **Isolation Forest** | Non-supervisé | Transaction | Horaire |
-| Classification ABC/XYZ | Règles statistiques (pandas) | Déterministe | Produit | Hebdomadaire |
-| Segmentation clients | **K-Means (RFM)** | Clustering | Client | Mensuelle |
+### 10.1 Contexte analytique : le commerce de quincaillerie au Burkina Faso
 
-### 10.2 Prévision de rupture de stock (Prophet + XGBoost)
+#### 10.1.1 Un secteur riche en données mais aveugle à leur exploitation
 
-**Objectif :** Prédire, pour chaque couple (produit, boutique), la demande journalière sur 7 à 30 jours et calculer la date probable de rupture.
+Le secteur de la quincaillerie et des pièces détachées au Burkina Faso est caractérisé par :
 
-**Features d'entrée :**
+- **Un volume transactionnel élevé** : des centaines de ventes journalières dans une quincaillerie active, impliquant des dizaines de produits, plusieurs vendeurs et des clients récurrents.
+- **Une saisonnalité marquée et complexe** : les ventes ne sont pas uniformes sur l'année. Elles dépendent du calendrier religieux (Tabaski, Noël/Nouvel An), de la saison agricole, de la saison des pluies (forte demande en matériaux BTP de juin à octobre), et du cycle hebdomadaire (pic le week-end).
+- **Une gestion encore manuelle** : carnets de caisse, cahiers de crédit, inventaires ponctuels sur papier. Ces données existent mais sont inexploitées.
+- **Une absence totale d'indicateurs de pilotage** : le commerçant ne sait pas, en temps réel, quel produit est sur le point de manquer, quel client présente un risque de non-remboursement, ni quelle boutique performe le mieux.
 
-| Feature | Source | Type |
-|---|---|---|
-| `y` (quantité vendue/jour) | `SUM(sale_lines.quantity)` | Variable cible |
-| `is_holiday` | Référentiel jours fériés BF | Booléen |
-| `is_rainy_season` | Juin-octobre = 1 | Booléen |
-| `day_of_week` | Dérivé de la date | Catégoriel |
-| `promotion_active` | Remises actives sur le produit | Booléen |
-| `stock_level_lag7` | Stock J-7 | Numérique (XGBoost uniquement) |
+> **L'enjeu analytique central de GesCom-BF** est de transformer cette masse de données opérationnelles en décisions actionnables, en respectant les contraintes locales : connectivité intermittente, faible littératie numérique, et absence d'infrastructure cloud dédiée.
 
-**Architecture du modèle hybride :**
+#### 10.1.2 Le crédit informel : une pratique centrale et risquée
 
-```python
-# Étape 1 : Modèle Prophet (saisonnalité)
-model = Prophet(
-    yearly_seasonality=True,
-    weekly_seasonality=True,
-    seasonality_mode="multiplicative"
-)
-model.add_country_holidays(country_name="BF")  # Jours fériés Burkina Faso
-model.add_seasonality("rainy_season", period=365.25, fourier_order=5,
-                       condition_name="is_rainy_season")
-model.fit(df_train)
-prophet_forecast = model.predict(future)
+Dans le commerce burkinabè, **le crédit est une pratique sociale avant d'être une pratique financière**. Il repose sur la confiance interpersonnelle et les réseaux de proximité. Ses caractéristiques :
 
-# Étape 2 : XGBoost affine les résidus Prophet
-residual = y_train - prophet_forecast_train["yhat"]
-xgb = XGBRegressor(n_estimators=200, max_depth=4, learning_rate=0.05)
-xgb.fit(X_exogenous_train, residual)
+**Fonctionnement du crédit informel :**
+- Le client repart avec la marchandise sans payer immédiatement — le paiement est différé de quelques jours à plusieurs semaines.
+- Il n'y a pas de contrat écrit, pas de taux d'intérêt, pas de garantie formelle.
+- Le commerçant tient un registre manuscrit des dettes (souvent un cahier ou une ardoise).
+- Le remboursement se fait en plusieurs fois, parfois en nature.
 
-# Prévision finale = Prophet + correction XGBoost
-final_forecast = prophet_forecast_test["yhat"] + xgb.predict(X_exogenous_test)
+**Systèmes communautaires complémentaires :**
+- **La tontine** : épargne collective tournante entre membres d'un groupe. La somme reçue à son tour peut servir à rembourser le commerçant.
+- **Le crédit fournisseur** : le grossiste accorde lui-même des délais de paiement au quincaillier, qui répercute cette logique sur ses propres clients.
+- **Le crédit de saison** : certains clients (maçons, agriculteurs) achètent à crédit en début de chantier ou de récolte et remboursent en fin de saison.
+
+**Les risques pour le commerçant :**
+- **Impayés** : un client peut déménager, tomber malade, ou être dans l'incapacité de rembourser.
+- **Accumulation des dettes** : sans suivi centralisé, le total du crédit accordé peut dépasser la trésorerie disponible.
+- **Favoritisme non contrôlé** : les vendeurs accordent du crédit à des connaissances personnelles sans évaluation du risque.
+- **Absence de décision basée sur les données** : la décision d'accorder du crédit se fait « à l'œil », sans historique formalisé.
+
+**Réponse de GesCom-BF :** Le module de scoring crédit transforme l'historique de paiement numérisé en un score objectif, permettant au commerçant de prendre des décisions basées sur des faits, tout en conservant une part de discrétion humaine.
+
+#### 10.1.3 Besoins analytiques identifiés
+
+À partir de l'analyse du terrain et des entretiens avec des commerçants, 6 besoins analytiques principaux ont été identifiés :
+
+| # | Besoin | Conséquence sans IA | Réponse GesCom-BF |
+|---|---|---|---|
+| B1 | Savoir quels produits vont manquer | Ruptures de stock = perte de ventes et clients perdus | Prévision Prophet + XGBoost (RF-25) |
+| B2 | Évaluer le risque de crédit d'un client | Impayés non anticipés = pertes sèches | Scoring crédit Random Forest (RF-27) |
+| B3 | Détecter les comportements suspects | Fraudes non détectées = pertes cachées | Isolation Forest (RF-28) |
+| B4 | Identifier les produits stratégiques | Capital immobilisé dans des produits peu rentables | Classification ABC/XYZ (RF-26) |
+| B5 | Segmenter les clients pour fidéliser | Traitement uniforme = fidélisation inefficace | Segmentation RFM K-Means (RF-26) |
+| B6 | Piloter l'activité en temps réel | Décisions prises sur des données J-1 ou J-7 | Dashboard SSE temps réel (RF-24) |
+
+---
+
+### 10.2 Architecture analytique globale
+
+#### 10.2.1 Pipeline de données de bout en bout
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  DONNÉES OPÉRATIONNELLES                                                 │
+│  sales · sale_lines · stock · stock_movements · customers · transfers   │
+└──────────────────────────────┬──────────────────────────────────────────┘
+                               │ ETL incrémental (flask etl-daily — 02h00)
+┌──────────────────────────────▼──────────────────────────────────────────┐
+│  FEATURE STORE (tables fs_*)                                             │
+│  fs_daily_sales · fs_stock_snapshots                                     │
+│  fs_customer_credit_features · fs_product_features                       │
+└──────┬───────────────┬────────────────┬────────────────┬────────────────┘
+       │               │                │                │
+  ┌────▼────┐    ┌──────▼──────┐  ┌────▼────┐    ┌──────▼──────┐
+  │ Prophet │    │  XGBoost    │  │  Rand.  │    │  Isolation  │
+  │ (série  │    │  (résidus)  │  │  Forest │    │  Forest     │
+  │ temporl)│    │             │  │ (crédit)│    │ (anomalies) │
+  └────┬────┘    └──────┬──────┘  └────┬────┘    └──────┬──────┘
+       └────────────────┴──────────────┴─────────────────┘
+                               │ Prédictions stockées
+┌──────────────────────────────▼──────────────────────────────────────────┐
+│  TABLE predictions (model_id → MLflow registry)                          │
+└──────────────────────────────┬──────────────────────────────────────────┘
+                               │
+          ┌────────────────────┼──────────────────────┐
+     ┌────▼─────┐       ┌──────▼──────┐       ┌───────▼──────┐
+     │ Dashboard│       │  Alertes    │       │  AnalyticsPage│
+     │ SSE temps│       │  (stock,    │       │  (React,      │
+     │ réel     │       │  anomalies) │       │  Recharts)    │
+     └──────────┘       └─────────────┘       └──────────────┘
 ```
 
-**Métriques de performance (jeu synthétique — 200 produits, 5 boutiques, 24 mois) :**
+#### 10.2.2 Feature Store — tables de préparation
+
+Le Feature Store est le tampon entre les données brutes et les modèles ML. Il stocke les variables pré-calculées utilisées par les modèles, évitant de recalculer les mêmes agrégations à chaque inférence :
+
+| Table | Contenu | Fréquence de mise à jour |
+|---|---|---|
+| `fs_daily_sales` | Ventes agrégées par (produit, boutique, jour) | Quotidienne (ETL 02h00) |
+| `fs_stock_snapshots` | Niveau de stock par (produit, boutique) à chaque clôture | Quotidienne |
+| `fs_customer_credit_features` | 8 indicateurs crédit par client (délais, taux retard...) | À chaque transaction crédit |
+| `fs_product_features` | CA, CV, classe ABC/XYZ par produit sur 12 mois glissants | Hebdomadaire |
+
+#### 10.2.3 Registre des modèles (MLflow)
+
+Chaque entraînement est tracé dans MLflow :
+
+```python
+import mlflow
+
+with mlflow.start_run(run_name=f"demand_forecast_{product_id}_{branch_id}"):
+    mlflow.log_params({"n_estimators": 200, "max_depth": 4, "learning_rate": 0.05})
+    mlflow.log_metrics({"rmse": 3.6, "mae": 2.7, "mape": 0.15})
+    mlflow.sklearn.log_model(xgb_model, artifact_path="model")
+    run_id = mlflow.active_run().info.run_id
+
+# Référence stockée en base :
+# INSERT INTO ml_models (model_type, version, algorithm, mlflow_run_id, is_active)
+# VALUES ('DEMAND_FORECAST', '2026.06.1', 'Prophet+XGBoost', run_id, TRUE)
+```
+
+Cette traçabilité garantit que **toute prédiction est reliée au modèle exact et au jeu de données qui l'a produite** — condition essentielle pour l'auditabilité et la confiance des utilisateurs.
+
+---
+
+### 10.3 Prévision de rupture de stock (RF-25)
+
+#### 10.3.1 Besoin métier et enjeu
+
+Dans une quincaillerie multi-sites, la rupture de stock est le problème le plus coûteux : un client qui ne trouve pas son produit chez vous va chez le concurrent et ne reviendra peut-être pas. Dans le contexte burkinabè :
+
+- Les fournisseurs sont souvent lointains (Ouagadougou, Abidjan, parfois Chine) → les délais de réapprovisionnement sont longs (1 à 4 semaines).
+- Les pics de demande sont brutaux (Tabaski, saison des pluies) → une rupture pendant cette période est catastrophique.
+- Le surstockage est aussi problématique : il immobilise une trésorerie limitée dans des produits qui ne se vendent pas.
+
+**L'objectif du modèle est donc double** : prédire la date de rupture probable *et* calculer la quantité optimale à commander pour éviter à la fois la rupture et le surstockage.
+
+#### 10.3.2 Saisonnalité contextuelle burkinabè
+
+La saisonnalité locale est une dimension clé que les modèles génériques (sans contextualisation) échouent à capturer :
+
+| Événement | Période | Impact sur les ventes | Produits concernés |
+|---|---|---|---|
+| **Tabaski (Aïd el-Kebir)** | Variable (calendrier lunaire) | +40 à +60 % sur 2 semaines | Quincaillerie domestique, peinture |
+| **Noël / Nouvel An** | Décembre | +30 % | Décoration, électroménager |
+| **Saison des pluies** | Juin–octobre | +50 à +80 % | Matériaux BTP, ciment, tôles, imperméables |
+| **Rentrée scolaire** | Septembre | +20 % | Fournitures, peinture |
+| **Pic week-end** | Samedi–dimanche | +30 % vs jours ouvrables | Tous produits |
+| **Jour de marché** | Variable par ville | +25 % | Produits de grande consommation |
+
+Ces saisonnalités sont encodées comme **variables exogènes** dans le pipeline Prophet + XGBoost.
+
+#### 10.3.3 Architecture du modèle hybride Prophet + XGBoost
+
+**Pourquoi un modèle hybride ?**
+- **Prophet** (Meta/Facebook) est excellent pour capturer les tendances et saisonnalités multiples, mais il ignore les variables exogènes quantitatives (niveau de stock, promotions actives).
+- **XGBoost** excelle à apprendre des relations non-linéaires entre variables exogènes, mais n'a pas de composante temporelle native.
+- La combinaison tire le meilleur des deux : Prophet capture la saisonnalité, XGBoost affine le résidu en intégrant le contexte exogène.
+
+```python
+from prophet import Prophet
+from xgboost import XGBRegressor
+import pandas as pd
+
+# ── Étape 1 : Prophet capte tendance + saisonnalité ──────────────────────────
+model = Prophet(
+    growth="linear",
+    yearly_seasonality=True,
+    weekly_seasonality=True,
+    daily_seasonality=False,
+    seasonality_mode="multiplicative",   # saisonnalité proportionnelle au niveau
+)
+model.add_country_holidays(country_name="BF")   # Tabaski, Noël, 11 août...
+model.add_seasonality(
+    name="rainy_season",
+    period=365.25,
+    fourier_order=5,
+    condition_name="is_rainy_season"     # actif juin–octobre uniquement
+)
+model.fit(df_train[["ds", "y", "is_rainy_season"]])
+prophet_forecast = model.predict(future_df)
+
+# ── Étape 2 : XGBoost apprend les résidus avec variables exogènes ─────────────
+residual_train = y_train.values - prophet_forecast_train["yhat"].values
+
+xgb = XGBRegressor(
+    n_estimators=200,
+    max_depth=4,
+    learning_rate=0.05,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    random_state=42
+)
+
+# Variables exogènes : ce que Prophet ne peut pas voir seul
+X_exog = df_train[["promotion_active", "stock_level_lag7", "day_of_week",
+                    "is_market_day", "days_to_tabaski"]]
+xgb.fit(X_exog, residual_train)
+
+# ── Prévision finale : Prophet + correction XGBoost ───────────────────────────
+final_forecast = prophet_forecast_test["yhat"] + xgb.predict(X_exog_test)
+```
+
+#### 10.3.4 Métriques de performance
+
+Validées sur un jeu synthétique de 24 mois (200 produits, 5 boutiques) :
 
 | Métrique | Prophet seul | Prophet + XGBoost | Cible projet |
 |---|---|---|---|
@@ -615,86 +767,457 @@ final_forecast = prophet_forecast_test["yhat"] + xgb.predict(X_exogenous_test)
 | MAPE | 22 % | **15 %** | < 20 % |
 | Couverture intervalle 80 % | 78 % | 81 % | ≥ 75 % |
 
-**Règle d'alerte automatique :**
+L'amélioration du MAPE de 22 % à 15 % représente une réduction d'un tiers de l'erreur moyenne, directement imputable à l'intégration des variables exogènes via XGBoost.
+
+#### 10.3.5 Règle d'alerte et calcul de la commande optimale (RG-38)
+
 ```
-SI stock_disponible(produit, boutique) < seuil_min_stock
-   OU stock_prévu_J+7 < 0
-ALORS → alerte RUPTURE_STOCK → notification administrateur
+POUR CHAQUE (produit p, boutique b) :
+
+  stock_disponible  = stock.quantite(p, b)
+  stock_prevu_J7   = stock_disponible - SUM(prevision_demande[J..J+7])
+  stock_prevu_J30  = stock_disponible - SUM(prevision_demande[J..J+30])
+
+  SI stock_disponible < seuil_min(p)
+  OU stock_prevu_J7 < 0 :
+      ÉMETTRE alerte RUPTURE_STOCK
+      quantite_recommandee = MAX(0, prevision_demande_30j - stock_disponible)
+                            × (1 + 0.10)    ← marge sécurité 10 %
 ```
 
-### 10.3 Scoring de solvabilité client (crédit informel)
+Cette quantité est affichée directement dans le tableau de bord, permettant au gestionnaire de passer commande immédiatement sans calcul manuel.
 
-**Problème métier :** Les commerçants accordent du crédit informellement. Le système calcule automatiquement un score de risque pour chaque client.
+---
 
-**Features client (Feature Store `fs_customer_credit_features`) :**
+### 10.4 Scoring de solvabilité client — crédit informel (RF-27)
 
-| Feature | Description |
-|---|---|
-| `total_credit_amount` | Encours de crédit total |
-| `nb_late_payments` | Nombre de paiements en retard |
-| `avg_days_to_pay` | Délai moyen de remboursement (jours) |
-| `payment_reliability_score` | Ratio (paiements à temps / total paiements) |
-| `total_purchases` | Volume d'achat total (ancienneté client) |
-| `last_purchase_days_ago` | Récence du dernier achat (RFM — Recency) |
+#### 10.4.1 Contexte : digitaliser la confiance
 
-**Modèle :** Ensemble Random Forest + Régression Logistique, comparatif sur validation croisée k-fold. Sortie : score [0–1] et classe binaire (bon/mauvais payeur). Seuil optimisé sur le F1-score pondéré (pénalisation asymétrique des faux négatifs).
+Dans le commerce burkinabè traditionnel, la décision d'accorder du crédit repose sur la **mémoire du vendeur** et la **réputation du client** dans le quartier. C'est subjectif, non documenté, et expose à deux risques symétriques :
+- Accorder du crédit à quelqu'un qui ne rembourse pas.
+- Refuser du crédit à un bon client fidèle (perte de la relation commerciale).
 
-### 10.4 Détection d'anomalies (Isolation Forest)
+GesCom-BF formalise cette évaluation sans la déshumaniser : **le score est un outil d'aide à la décision, pas un verdict automatique**. Le commerçant reste libre de sa décision finale.
 
-**Objectif :** Détecter automatiquement les comportements suspects : remises inhabituelles, écarts de stock inexpliqués, ventes atypiques (possible fraude).
+#### 10.4.2 Variables explicatives (features)
+
+Ces 8 variables sont calculées à partir de l'historique de paiement enregistré dans GesCom-BF et stockées dans `fs_customer_credit_features` :
+
+| Feature | Description | Interprétation |
+|---|---|---|
+| `nb_achats_credit_total` | Nombre d'achats à crédit historiques | Plus il y en a, plus on dispose de données fiables |
+| `montant_moyen_achat` | Montant moyen des achats | Profil client (gros ou petit acheteur) |
+| `delai_moyen_remboursement_jours` | Délai moyen entre achat et remboursement | Clé : un délai court = bon payeur |
+| `taux_retard` | % de remboursements en retard (> 30 jours) | Indicateur de risque principal |
+| `anciennete_client_mois` | Durée de la relation commerciale | Ancienneté = fidélité = confiance |
+| `frequence_achat_mensuelle` | Nombre d'achats par mois | Client régulier = revenu stable supposé |
+| `solde_du_actuel` | Encours de crédit non remboursé | Endettement courant |
+| `type_client` | SIMPLE / TECHNICIEN (encodé) | Les techniciens ont souvent un revenu régulier |
+
+#### 10.4.3 Construction de la variable cible
+
+```python
+# Définition du "bon payeur" (label binaire)
+# bon_payeur = 1 si : taux_retard < 20% ET aucun impayé > 90 jours
+# bon_payeur = 0 sinon
+
+df["bon_payeur"] = (
+    (df["taux_retard"] < 0.20) &
+    (df["max_retard_jours"] <= 90)
+).astype(int)
+```
+
+Sur le jeu synthétique, le déséquilibre des classes est géré via `class_weight="balanced"` dans les deux modèles.
+
+#### 10.4.4 Comparaison des modèles
+
+```python
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+
+cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+
+logreg = LogisticRegression(max_iter=1000, class_weight="balanced")
+rf = RandomForestClassifier(n_estimators=300, max_depth=6,
+                             class_weight="balanced", random_state=42)
+
+# La régression logistique sert de modèle de référence interprétable
+# Le Random Forest est retenu pour la production (meilleures métriques)
+```
+
+| Métrique | Régression Logistique | Random Forest | Cible |
+|---|---|---|---|
+| Accuracy | 0,78 | **0,84** | > 0,75 |
+| Précision (mauvais payeur) | 0,71 | **0,79** | > 0,70 |
+| Rappel (mauvais payeur) | 0,65 | **0,76** | > 0,70 |
+| F1-score | 0,68 | **0,77** | > 0,70 |
+| ROC-AUC | 0,81 | **0,88** | > 0,80 |
+
+**Choix du Random Forest** pour la production : ses métriques sont supérieures sur tous les axes, notamment le rappel sur les mauvais payeurs (0,76 vs 0,65) — dimension critique car rater un mauvais payeur coûte plus cher que de refuser un bon client par précaution.
+
+#### 10.4.5 Sortie et interprétation
+
+Le système produit un score entre 0 et 100, une classe de risque, et les 3 principaux facteurs explicatifs :
+
+```json
+{
+  "customer_id": "uuid-client",
+  "customer_name": "Ouédraogo Karim",
+  "score": 68,
+  "risk_level": "MOYEN",
+  "top_factors": [
+    {"feature": "taux_retard",        "valeur": "18 %", "impact": "négatif"},
+    {"feature": "anciennete_client",  "valeur": "24 mois", "impact": "positif"},
+    {"feature": "solde_du_actuel",    "valeur": "45 000 FCFA", "impact": "négatif"}
+  ],
+  "recommandation": "Crédit accepté jusqu'à 50 000 FCFA — surveiller le solde dû"
+}
+```
+
+| Score | Niveau | Couleur | Recommandation |
+|---|---|---|---|
+| 71–100 | FAIBLE | Vert | Crédit accordé — plafond étendu possible |
+| 41–70 | MOYEN | Orange | Crédit accepté — plafond standard |
+| 0–40 | ÉLEVÉ | Rouge | Crédit déconseillé — paiement comptant recommandé |
+
+---
+
+### 10.5 Détection d'anomalies — Isolation Forest (RF-28)
+
+#### 10.5.1 Pourquoi la détection d'anomalies est cruciale en Afrique de l'Ouest
+
+Dans un commerce où plusieurs vendeurs utilisent la même caisse, où la supervision directe n'est pas toujours possible, et où les transactions en espèces dominent, les risques de fraude interne sont réels :
+
+- Un vendeur accorde une remise à un ami sans autorisation.
+- Un vendeur enregistre une vente fictive pour détourner le paiement.
+- Un magasinier fait sortir du stock sans enregistrement de transfert.
+- Des ventes sont passées en dehors des heures habituelles.
+
+L'**Isolation Forest** est particulièrement adapté à ce contexte car il n'a pas besoin d'exemples de fraudes passées pour fonctionner (apprentissage non supervisé). Il apprend la distribution normale des transactions et isole les points qui s'en écartent statistiquement.
+
+#### 10.5.2 Implémentation
 
 ```python
 from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import StandardScaler
+import numpy as np
 
-model = IsolationForest(
+# Features de détection d'anomalies
+features = [
+    "montant_total",            # Montant global de la vente
+    "remise_taux",              # Taux de remise appliqué
+    "heure_vente",              # Heure de la transaction (0–23)
+    "nb_lignes_vente",          # Nombre de produits dans la vente
+    "ecart_vs_moyenne_vendeur", # Écart au comportement habituel du vendeur
+    "ecart_vs_moyenne_produit"  # Écart à la demande habituelle du produit
+]
+
+# Normalisation (Isolation Forest est sensible aux échelles)
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X_train[features])
+
+# Entraînement : contamination = proportion estimée d'anomalies (2 %)
+iso = IsolationForest(
     n_estimators=200,
-    contamination=0.02,    # 2 % de transactions supposées anormales
+    contamination=0.02,
+    max_samples="auto",
     random_state=42
 )
-model.fit(X_train_transactions)
-scores = model.decision_function(X_new)
-# Score < seuil_anomalie → alerte générée
+iso.fit(X_scaled)
+
+# Inférence sur nouvelles transactions
+scores = iso.decision_function(scaler.transform(X_new[features]))
+# Plus le score est négatif, plus la transaction est anormale
+anomalies = X_new[scores < SEUIL_ANOMALIE]   # seuil calibré sur données de validation
 ```
 
-**Types d'anomalies détectés :**
-- Vente avec remise > 20 % non autorisée
-- Quantité vendue hors de la plage historique (3σ)
-- Mouvement de stock sans vente/transfert associé
-- Vente au-delà des heures d'ouverture habituelles
+#### 10.5.3 Types d'anomalies et règles de détection
 
-### 10.5 Classification ABC/XYZ
-
-| Axe | Critère | Classe |
+| Type | Détection | Exemple concret |
 |---|---|---|
-| **ABC** (valeur) | Part dans le CA total | A = 80 %, B = 15 %, C = 5 % |
-| **XYZ** (régularité) | Coefficient de variation de la demande | X = CV < 50 %, Y = 50–100 %, Z = > 100 % |
+| Remise non autorisée | Remise > 20 % OU remise sans `approved_by` | Vendeur qui applique 30 % sans validation |
+| Vente hors-norme (montant) | Montant > μ + 3σ du vendeur | Vente à 500 000 FCFA par un vendeur dont la moyenne est 15 000 FCFA |
+| Vente nocturne | Heure < 07h00 ou > 21h00 | Enregistrement à 02h00 du matin |
+| Volume anormal de produit | Quantité > μ + 3σ du produit sur la boutique | 50 unités d'un produit dont la moyenne est 3/jour |
+| Mouvement de stock orphelin | Sortie stock sans vente ni transfert associé | -20 unités sans justification |
 
-La combinaison donne 9 catégories (AX, AY, AZ... CZ) guidant la politique de réapprovisionnement : les produits **AX** (forte valeur, demande régulière) bénéficient d'un réapprovisionnement automatisé.
+#### 10.5.4 Métriques d'évaluation (anomalies synthétiques injectées à 2 %)
 
-### 10.6 Pipeline ETL et traçabilité (MLflow)
+| Métrique | Valeur | Cible |
+|---|---|---|
+| Précision (anomalies correctes / alertes générées) | 0,84 | > 0,80 |
+| Rappel (anomalies réelles détectées) | 0,91 | > 0,85 |
+| Taux de faux positifs | 8 % | < 10 % |
+
+---
+
+### 10.6 Classification ABC/XYZ des produits (RF-26)
+
+#### 10.6.1 Méthode et calcul
+
+La classification ABC/XYZ est une technique d'analyse de portefeuille produits qui croise deux dimensions complémentaires :
+
+**Axe ABC — valeur économique (loi de Pareto) :**
+```python
+# Calcul du CA cumulé par produit sur 12 mois glissants
+df_abc = (fs_daily_sales
+    .groupby("product_id")["revenue"].sum()
+    .sort_values(ascending=False)
+    .reset_index())
+
+df_abc["ca_cumule_pct"] = df_abc["revenue"].cumsum() / df_abc["revenue"].sum()
+df_abc["abc_class"] = pd.cut(
+    df_abc["ca_cumule_pct"],
+    bins=[0, 0.80, 0.95, 1.0],
+    labels=["A", "B", "C"]
+)
+```
+
+**Axe XYZ — régularité de la demande (coefficient de variation) :**
+```python
+# Coefficient de variation = écart-type / moyenne
+df_xyz = (fs_daily_sales
+    .groupby("product_id")["quantity_sold"]
+    .agg(["mean", "std"])
+    .eval("cv = std / mean")
+    .reset_index())
+
+df_xyz["xyz_class"] = pd.cut(
+    df_xyz["cv"],
+    bins=[0, 0.5, 1.0, float("inf")],
+    labels=["X", "Y", "Z"]
+)
+```
+
+#### 10.6.2 Interprétation des 9 classes combinées
+
+| Classe | Valeur | Régularité | Stratégie recommandée |
+|---|---|---|---|
+| **AX** | Forte (80 % CA) | Régulière (CV < 50 %) | Réapprovisionnement automatique — priorité maximale |
+| **AY** | Forte | Irrégulière | Stock de sécurité élevé — surveiller activement |
+| **AZ** | Forte | Très irrégulière | Commande sur prévisionnelle — attention aux pics |
+| **BX** | Moyenne | Régulière | Réapprovisionnement planifié — gestion standard |
+| **BY** | Moyenne | Irrégulière | Révision trimestrielle des seuils |
+| **BZ** | Moyenne | Très irrégulière | Commande à la demande |
+| **CX** | Faible | Régulière | Stock minimal — réduire le catalogue si possible |
+| **CY** | Faible | Irrégulière | Évaluer la pertinence de conserver le produit |
+| **CZ** | Faible | Très irrégulière | Candidat à la suppression du catalogue |
+
+**Exemple concret :** Un joint de robinet (produit AX) doit toujours être en stock — sa rupture génère beaucoup de pertes. Un spray décoratif rare (CZ) peut être commandé uniquement à la demande.
+
+---
+
+### 10.7 Segmentation clients RFM + K-Means (RF-26)
+
+#### 10.7.1 Méthode RFM contextualisée
+
+La segmentation RFM (Récence, Fréquence, Montant) est particulièrement pertinente dans le commerce africain car elle capture les dynamiques d'achat communautaires :
+
+| Dimension | Calcul | Signification dans le contexte BF |
+|---|---|---|
+| **Récence (R)** | Jours depuis le dernier achat | Un client qui n'est pas venu depuis 3 mois mérite une attention particulière |
+| **Fréquence (F)** | Nombre d'achats sur 12 mois | Indicateur de fidélité et de régularité des revenus |
+| **Montant (M)** | CA total sur 12 mois | Valeur économique du client pour la boutique |
+
+#### 10.7.2 Clustering K-Means
+
+```python
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+import pandas as pd
+
+# Construction de la matrice RFM
+rfm = customers.merge(sales, on="customer_id").groupby("customer_id").agg(
+    recency=("created_at", lambda x: (today - x.max()).days),
+    frequency=("id", "count"),
+    monetary=("total_amount", "sum")
+)
+
+# Normalisation indispensable (K-Means est sensible aux échelles)
+X_scaled = StandardScaler().fit_transform(rfm)
+
+# Nombre de clusters : méthode du coude (elbow method) → k=4 optimal
+kmeans = KMeans(n_clusters=4, random_state=42, n_init=10)
+rfm["segment"] = kmeans.fit_predict(X_scaled)
+```
+
+#### 10.7.3 Profils de segments et actions recommandées
+
+| Segment | Profil RFM | Part typique | Action recommandée |
+|---|---|---|---|
+| **Champions** | R ≤ 7j, F ≥ 10, M élevé | ~15 % des clients | Programme VIP, crédit étendu, précommandes |
+| **Clients fidèles** | R ≤ 30j, F ≥ 5, M moyen | ~25 % | Relances proactives, offres personnalisées |
+| **À risque** | R > 60j, F/M historiquement élevés | ~20 % | Campagne de réactivation urgente |
+| **Occasionnels** | R élevé, F/M faibles | ~40 % | Communication standard, pas d'investissement spécifique |
+
+**Croisement avec le scoring crédit :** Un client "Champion" avec un score crédit FAIBLE (bon payeur) peut se voir offrir un plafond de crédit étendu sans risque. Un client "À risque" avec un score ÉLEVÉ (mauvais payeur) doit être traité avec la plus grande prudence.
+
+---
+
+### 10.8 Dashboard BI temps réel — SSE (RF-24)
+
+#### 10.8.1 Architecture technique
+
+Le tableau de bord utilise les **Server-Sent Events (SSE)** plutôt que WebSocket ou polling classique :
+
+| Technique | Avantages | Inconvénients | Choix pour GesCom-BF |
+|---|---|---|---|
+| **Polling** | Simple | Charge serveur élevée, données pas fraîches | Fallback uniquement |
+| **WebSocket** | Bidirectionnel, temps réel pur | Nécessite Redis/Nginx WS, complexe en production | Non retenu (PythonAnywhere) |
+| **SSE** | Léger, unidirectionnel, proxy-friendly | Limité aux données serveur → client | **Retenu ✅** |
+
+```python
+# Backend Flask — endpoint SSE
+@reports_bp.route("/dashboard/stream")
+@jwt_required()
+def dashboard_stream():
+    def generate():
+        for _ in range(60):   # 60 événements max par connexion
+            metrics = DashboardService.get_realtime_metrics(branch_id)
+            yield f"data: {json.dumps(metrics)}\n\n"
+            time.sleep(5)
+        # Signal de fermeture propre (client se reconnecte)
+        yield "event: stream-end\ndata: {}\n\n"
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache",
+                             "X-Accel-Buffering": "no"})
+```
+
+**Adaptation PythonAnywhere (DISABLE_SSE=true) :** Sur l'hébergement mutualisé, uWSGI en mode multi-worker ne supporte pas le streaming SSE. Une variable d'environnement `DISABLE_SSE=true` fait basculer l'endpoint en mode "snapshot unique" suivi d'un événement `sse-disabled`. Le frontend détecte cet événement et bascule automatiquement sur du polling toutes les 15 secondes.
+
+#### 10.8.2 Métriques diffusées en temps réel
+
+```json
+{
+  "timestamp": "2026-06-18T22:30:00Z",
+  "ca_jour": 1250000,
+  "ca_hier": 980000,
+  "nb_ventes_jour": 47,
+  "top_produits": [
+    {"name": "Joint torique 25mm", "qty": 120, "revenue": 60000},
+    {"name": "Tuyau PVC 32mm", "qty": 85, "revenue": 127500}
+  ],
+  "alertes_stock": [
+    {"product": "Ciment CPA 32.5", "branch": "Boutique Zogona", "stock_restant": 3, "rupture_j": 2}
+  ],
+  "anomalies_actives": 2,
+  "clients_credit_risque_eleve": 5
+}
+```
+
+#### 10.8.3 Interface React (AnalyticsPage)
+
+L'interface React regroupe toutes les analyses en un écran unique organisé par onglets. Chaque onglet est alimenté par l'API REST `/api/v1/analytics/*` et rendu avec **Recharts** (bibliothèque de visualisation React) :
+
+| Onglet | Contenu | Graphiques |
+|---|---|---|
+| **Tendance** | Évolution du CA sur la période | LineChart + AreaChart multi-series |
+| **Prévisions** | Table des alertes de rupture par produit/boutique | Tableau filtrable |
+| **ABC/XYZ** | Classification du portefeuille produits | PieChart (ABC) + BarChart (classes combinées) |
+| **RFM** | Nuage de points des segments clients | ScatterChart (R×F, taille∝M) |
+| **Crédit** | Distribution du risque + Top 10 scores | PieChart + BarChart horizontal |
+| **Anomalies** | Score d'anomalie vs remise | ScatterChart + tableau |
+| **Modèles IA** | Registre des modèles entraînés | Tableau avec boutons d'entraînement |
+
+---
+
+### 10.9 Propositions d'amélioration pour la V2
+
+Ces propositions sont formulées comme une **feuille de route réaliste**, contextualisant les apports de l'IA au commerce burkinabè et distinguant ce qui est déjà implémenté de ce qui pourrait être ajouté.
+
+#### 10.9.1 Intégration du prix du marché et de l'inflation
+
+**Problème :** Le Burkina Faso subit des épisodes d'inflation importants (carburant, matériaux importés). Les prix d'achat varient fortement selon les périodes. Le modèle actuel prédit les **quantités**, pas les **prix**.
+
+**Proposition :** Ajouter un module de suivi des prix d'achat fournisseur avec détection des dérives anormales (hausse brutale > 20 % sur un produit) et suggestion automatique de mise à jour du prix de vente pour maintenir la marge.
 
 ```
-PostgreSQL/MySQL (données opérationnelles)
-    ↓ Extraction incrémentale (cron quotidien)
-    ↓ Nettoyage + validation (Great Expectations)
-    ↓ Feature Engineering → Feature Store (tables fs_*)
-    ↓ Entraînement modèles → MLflow (métriques, artefacts, versions)
-    ↓ Stockage prédictions → table predictions
-    ↓ Dashboard temps réel (SSE) + Alertes
+Nouvelle feature dans XGBoost :
+  prix_achat_variation_30j : variation du prix d'achat sur 30 jours (%)
+  → influence sur la marge prévue et le besoin de réapprovisionnement
 ```
 
-Chaque expérience ML est tracée dans MLflow avec : les hyperparamètres, les métriques de validation, le chemin des données d'entraînement (data lineage), et le numéro de version du modèle déployé.
+#### 10.9.2 Modèle de crédit enrichi avec données de tontine
 
-### 10.7 Dashboard BI temps réel
+**Problème :** Le scoring actuel ne capture pas les engagements financiers hors-boutique du client (tontines, crédits chez d'autres commerçants, crédits télécom).
 
-Le tableau de bord de l'administrateur utilise **Server-Sent Events (SSE)** pour pousser les métriques en temps réel sans polling :
+**Proposition V2 :** Développer une API d'échange de données inter-commerçants (avec consentement du client) permettant d'enrichir le scoring crédit. Deux commerçants sur la même plateforme GesCom-BF pourraient partager des informations de solvabilité anonymisées sur leurs clients communs.
+
+| Nouvelle feature | Source | Impact attendu sur le ROC-AUC |
+|---|---|---|
+| `ratio_tontine_remboursement` | Données comité tontine (si numérisées) | +3 à +5 % |
+| `credit_autres_commerçants` | API inter-boutiques GesCom-BF | +4 à +7 % |
+| `paiements_mobile_money` | API Orange Money / Moov Money | +5 à +8 % |
+
+#### 10.9.3 Recommandation de prix dynamique
+
+**Problème :** Les commerçants ajustent leurs prix manuellement et rarement. Ils n'ont pas de visibilité sur l'élasticité-prix de leurs produits.
+
+**Proposition :** Modèle d'élasticité-prix par produit et par segment de clientèle :
+
+```python
+# Régression log-log sur les données de ventes avec variations de prix
+ln(quantite) = α + β × ln(prix) + γ × saisonnalite + ε
+# β = élasticité-prix (si β = -1.5 : +10 % prix → -15 % quantité vendue)
+```
+
+Le commerçant reçoit une suggestion : « Vous pouvez augmenter le prix du Joint 25mm de 5 % en haute saison sans perdre de volume de ventes. »
+
+#### 10.9.4 Prévision de trésorerie (Cash Flow Forecasting)
+
+**Problème majeur en contexte africain :** La trésorerie est le nerf de la guerre. Un commerçant peut avoir un bon stock et de bonnes ventes mais se retrouver en difficulté de trésorerie à cause du crédit accordé.
+
+**Proposition :** Module de prévision de trésorerie à 30 jours :
 
 ```
-GET /api/v1/reports/dashboard/stream
-    → Flux SSE toutes les 5 secondes
-    → Métriques : CA du jour, ventes en cours, alertes actives, top produits
-    → Limite : 60 événements par connexion → client se reconnecte automatiquement
+Trésorerie prévue J+30 = 
+    Encaissements prévus (ventes comptant prévues + remboursements crédit attendus)
+  - Décaissements prévus (réapprovisionnements recommandés + dépenses fixes)
 ```
+
+Ce module est particulièrement pertinent au Burkina Faso car il permettrait d'anticiper les tensions de trésorerie avant les périodes de réapprovisionnement (avant Tabaski notamment).
+
+#### 10.9.5 Détection des fournisseurs défaillants
+
+**Problème :** Certains fournisseurs livrent en retard ou avec des produits non conformes. Actuellement, aucun indicateur ne mesure la fiabilité fournisseur.
+
+**Proposition :** Module de scoring fournisseur :
+
+| Indicateur | Calcul |
+|---|---|
+| Taux de livraison à temps | Livraisons reçues dans le délai / total commandes |
+| Taux de non-conformité | Lignes retournées / lignes reçues |
+| Score de fiabilité | Pondération des indicateurs ci-dessus sur 12 mois glissants |
+
+Un fournisseur avec un score faible déclenche une alerte lors d'une nouvelle commande.
+
+#### 10.9.6 NLP pour les réclamations et avis clients
+
+**Problème :** Les échanges avec les clients se font principalement via WhatsApp ou oralement. Ces données qualitatives ne sont pas exploitées.
+
+**Proposition :** Intégration d'un module de **traitement du langage naturel léger** (modèle BERT multilingue français/mooré fine-tuné) pour analyser les messages WhatsApp Business et détecter automatiquement les réclamations, demandes de prix, et signaux d'intérêt pour un produit.
+
+---
+
+### 10.10 Vue consolidée du module — ce qui est implémenté vs proposé
+
+| Composant | Statut | Algorithme | Données |
+|---|---|---|---|
+| Prévision rupture de stock | ✅ **Implémenté** | Prophet + XGBoost | Synthétiques (prod : réelles dès M+1) |
+| Scoring crédit client | ✅ **Implémenté** | Random Forest | Synthétiques |
+| Détection d'anomalies | ✅ **Implémenté** | Isolation Forest | Synthétiques |
+| Classification ABC/XYZ | ✅ **Implémenté** | Règles statistiques | Synthétiques |
+| Segmentation RFM | ✅ **Implémenté** | K-Means | Synthétiques |
+| Dashboard SSE temps réel | ✅ **Implémenté** | — | Opérationnelles |
+| Interface Recharts (AnalyticsPage) | ✅ **Implémenté** | — | API REST |
+| Suivi inflation / prix marché | 🔵 **Proposé V2** | Détection dérive | À collecter |
+| Crédit enrichi (Mobile Money) | 🔵 **Proposé V2** | RF enrichi | API Orange/Moov |
+| Recommandation prix dynamique | 🔵 **Proposé V2** | Régression log-log | Historique prix |
+| Prévision de trésorerie | 🔵 **Proposé V2** | Série temporelle | Ventes + crédit |
+| Scoring fournisseur | 🔵 **Proposé V2** | Règles + scoring | Réceptions |
+| NLP réclamations WhatsApp | 🔵 **Proposé V3** | BERT multilingue | Messages clients |
 
 ---
 
@@ -912,5 +1435,5 @@ La documentation est structurée en **34 fichiers Markdown** (~800 pages) organi
 
 ---
 
-*Document généré le 18 juin 2026 — Version 1.0*  
+*Document mis à jour le 18 juin 2026 — Version 2.0 (section Analyse de données & IA enrichie)*  
 *GesCom-BF — Système de Gestion Commerciale SaaS · Burkina Faso*

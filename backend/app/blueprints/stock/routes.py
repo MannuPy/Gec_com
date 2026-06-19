@@ -1,8 +1,4 @@
-"""Routes du blueprint `stock` : consultation et ajustements manuels.
-
-Cf. 17-API-REST.md §Stock (`GET /stock`, `GET /stock/movements`) et
-04-REGLES-METIER.md (RG-24 : tout ajustement manuel est journalisé et motivé).
-"""
+"""Routes du blueprint `stock` : consultation et ajustements manuels."""
 from flask import jsonify, request
 from flask_jwt_extended import get_jwt_identity
 
@@ -38,7 +34,6 @@ def list_stock():
     if below_min is not None and below_min.lower() in ("1", "true", "yes"):
         query = query.filter(Stock.quantity < Product.min_stock_threshold)
 
-    # Synchronisation incrémentale du stock en mode hors-ligne (26.7)
     updated_since = parse_updated_since(request.args.get("updated_since"))
     if updated_since is not None:
         query = query.filter(Stock.updated_at >= updated_since)
@@ -50,7 +45,7 @@ def list_stock():
 @stock_bp.get("/movements")
 @require_permission("stock:read", "products:read")
 def list_movements():
-    """Historique des mouvements de stock (traçabilité, RG-17/RG-24)."""
+    """Historique des mouvements de stock (tracabilite, RG-17/RG-24)."""
     query = StockMovement.query
 
     branch_id = request.args.get("branch_id")
@@ -81,11 +76,7 @@ def list_movements():
 @stock_bp.post("/adjustments")
 @require_permission("stock:write")
 def create_adjustment():
-    """Ajustement manuel de stock (inventaire, casse, perte) — RG-24.
-
-    Le mouvement est obligatoirement motivé (`comment`) et journalisé avec
-    le type `AJUSTEMENT_MANUEL`.
-    """
+    """Ajustement manuel de stock (inventaire, casse, perte) - RG-24."""
     payload = StockAdjustmentSchema().load(request.get_json(silent=True) or {})
 
     if Product.query.get(payload["product_id"]) is None:

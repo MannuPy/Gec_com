@@ -1,11 +1,5 @@
-"""Script d'amorçage des données de référence (RBAC, sites, catalogue démo).
-
-Exécuté au démarrage du conteneur `api` (cf. docker-compose.yml) via
-`python -m app.seed`. Idempotent : peut être exécuté plusieurs fois sans
-dupliquer les données (vérifie l'existence avant insertion).
-
-Cf. 18-SECURITE.md §18.1 (matrice RBAC) et 15-DICTIONNAIRE-DES-DONNEES.md
-pour le référentiel produit de démonstration.
+"""Script d'amorcage des donnees de reference (RBAC, sites, catalogue demo).
+Idempotent : peut etre execute plusieurs fois sans dupliquer les donnees.
 """
 import os
 
@@ -26,44 +20,40 @@ from app.models import (
 )
 from app.utils.tenant import register_user_index
 
-# ---------------------------------------------------------------------------
-# RBAC : permissions atomiques (`<ressource>:<action>`) et rôles (RG-02/RG-03)
-# ---------------------------------------------------------------------------
-
 PERMISSIONS: list[tuple[str, str]] = [
-    ("*", "Accès total (réservé au rôle ADMIN)"),
-    ("users:read", "Consulter les utilisateurs et rôles"),
-    ("users:write", "Créer/modifier les utilisateurs"),
+    ("*", "Acces total (reserve au role ADMIN)"),
+    ("users:read", "Consulter les utilisateurs et roles"),
+    ("users:write", "Creer/modifier les utilisateurs"),
     ("products:read", "Consulter le catalogue produit"),
-    ("products:write", "Créer/modifier le catalogue produit"),
+    ("products:write", "Creer/modifier le catalogue produit"),
     ("stock:read", "Consulter les niveaux et mouvements de stock"),
     ("stock:write", "Effectuer des ajustements de stock"),
     ("suppliers:read", "Consulter les fournisseurs"),
-    ("suppliers:write", "Créer/modifier les fournisseurs"),
-    ("receptions:read", "Consulter les réceptions"),
-    ("receptions:write", "Créer/valider les réceptions"),
+    ("suppliers:write", "Creer/modifier les fournisseurs"),
+    ("receptions:read", "Consulter les receptions"),
+    ("receptions:write", "Creer/valider les receptions"),
     ("transfers:read", "Consulter les transferts"),
-    ("transfers:write", "Créer/expédier/réceptionner les transferts"),
+    ("transfers:write", "Creer/expedier/receptionner les transferts"),
     ("sales:read", "Consulter l'historique des ventes"),
     ("sales:create", "Enregistrer une vente en caisse"),
-    ("sales:refund", "Émettre un avoir sur une vente"),
-    ("sales:approve_discount", "Approuver une remise nécessitant un accord (RG-23)"),
+    ("sales:refund", "Emettre un avoir sur une vente"),
+    ("sales:approve_discount", "Approuver une remise necessitant un accord"),
     ("customers:read", "Consulter les clients"),
-    ("customers:write", "Créer/modifier les clients"),
+    ("customers:write", "Creer/modifier les clients"),
     ("reports:read", "Consulter le tableau de bord et les indicateurs"),
     ("analytics:read", "Consulter les tableaux de bord analytiques et l'IA"),
     ("inventory:read", "Consulter les sessions d'inventaire physique"),
-    ("inventory:write", "Créer et valider des sessions d'inventaire physique"),
-    ("ml:train", "Déclencher l'entraînement des modèles ML"),
+    ("inventory:write", "Creer et valider des sessions d'inventaire physique"),
+    ("ml:train", "Declencher l'entrainement des modeles ML"),
 ]
 
 ROLE_DEFINITIONS: dict[str, dict] = {
     "ADMIN": {
-        "description": "Administrateur : accès total, approbation des remises, gestion des utilisateurs.",
+        "description": "Administrateur : acces total, approbation des remises, gestion des utilisateurs.",
         "permissions": ["*"],
     },
     "MAGASINIER": {
-        "description": "Magasinier : gestion du dépôt central, réceptions, transferts.",
+        "description": "Magasinier : gestion du depot central, receptions, transferts.",
         "permissions": [
             "products:read",
             "stock:read",
@@ -131,12 +121,8 @@ def seed_permissions_and_roles() -> dict[str, Role]:
     return roles_by_name
 
 
-# ---------------------------------------------------------------------------
-# Sites (RG-01 : un dépôt central + N boutiques)
-# ---------------------------------------------------------------------------
-
 BRANCHES: list[dict] = [
-    {"name": "Dépôt Central", "code": "DEPOT", "is_depot": True, "address": "Zone industrielle, Ouagadougou"},
+    {"name": "Depot Central", "code": "DEPOT", "is_depot": True, "address": "Zone industrielle, Ouagadougou"},
     {"name": "Boutique Tanghin", "code": "OUA-TAN", "is_depot": False, "address": "Tanghin, Ouagadougou"},
     {"name": "Boutique Gounghin", "code": "OUA-GOU", "is_depot": False, "address": "Gounghin, Ouagadougou"},
 ]
@@ -156,10 +142,6 @@ def seed_branches() -> dict[str, Branch]:
     return branches_by_code
 
 
-# ---------------------------------------------------------------------------
-# Utilisateurs de démonstration
-# ---------------------------------------------------------------------------
-
 def seed_users(roles_by_name: dict[str, Role], branches_by_code: dict[str, Branch]) -> None:
     admin_email = os.environ.get("SEED_ADMIN_EMAIL", "admin@gescom-bf.bf").lower()
     admin_password = os.environ.get("SEED_ADMIN_PASSWORD", "Admin#2026")
@@ -168,21 +150,21 @@ def seed_users(roles_by_name: dict[str, Role], branches_by_code: dict[str, Branc
         {
             "email": admin_email,
             "password": admin_password,
-            "full_name": "Administrateur Système",
+            "full_name": "Administrateur Systeme",
             "role": "ADMIN",
             "branch_code": None,
         },
         {
             "email": "magasinier@gescom-bf.bf",
             "password": "Magasinier#2026",
-            "full_name": "Issa Kaboré (Magasinier)",
+            "full_name": "Issa Kabore (Magasinier)",
             "role": "MAGASINIER",
             "branch_code": "DEPOT",
         },
         {
             "email": "vendeur@gescom-bf.bf",
             "password": "Vendeur#2026",
-            "full_name": "Aïcha Ouédraogo (Vendeuse)",
+            "full_name": "Aicha Ouedraogo (Vendeuse)",
             "role": "VENDEUR",
             "branch_code": "OUA-TAN",
         },
@@ -202,19 +184,10 @@ def seed_users(roles_by_name: dict[str, Role], branches_by_code: dict[str, Branc
             user.set_password(data["password"])
             db.session.add(user)
 
-        # Index global email -> schema (§27.7) : les comptes de démonstration
-        # appartiennent au tenant par défaut (V1 mono-tenant, schéma `public`).
         register_user_index(data["email"], "public")
 
     db.session.commit()
 
-
-# ---------------------------------------------------------------------------
-# Registre des tenants (multi-tenant SaaS, §27.3) : enregistre le tenant
-# "historique" V1 mono-tenant (schéma `public`) dans `public.companies` afin
-# que /auth/login et le middleware `set_tenant_schema` disposent d'une
-# entrée cohérente pour ce tenant.
-# ---------------------------------------------------------------------------
 
 def seed_default_company() -> None:
     schema_name = "public"
@@ -231,18 +204,14 @@ def seed_default_company() -> None:
         db.session.commit()
 
 
-# ---------------------------------------------------------------------------
-# Catalogue de démonstration (quincaillerie)
-# ---------------------------------------------------------------------------
-
-CATEGORIES = ["Visserie", "Peinture", "Plomberie", "Électricité", "Matériaux de construction", "Outillage"]
+CATEGORIES = ["Visserie", "Peinture", "Plomberie", "Electricite", "Materiaux de construction", "Outillage"]
 BRANDS = ["SOBA", "Dangote", "Tata", "CIMFASO", "Generic"]
 
 PRODUCTS: list[dict] = [
     {
         "sku": "CIM-DAN-50",
         "name": "Ciment Dangote 50kg",
-        "category": "Matériaux de construction",
+        "category": "Materiaux de construction",
         "brand": "Dangote",
         "unit": "SAC",
         "purchase_price": "4200",
@@ -252,8 +221,8 @@ PRODUCTS: list[dict] = [
     },
     {
         "sku": "FER-T8-12M",
-        "name": "Fer à béton torsadé Ø8 (barre 12m)",
-        "category": "Matériaux de construction",
+        "name": "Fer a beton torsade O8 (barre 12m)",
+        "category": "Materiaux de construction",
         "brand": "Generic",
         "unit": "UNITE",
         "purchase_price": "3500",
@@ -274,7 +243,7 @@ PRODUCTS: list[dict] = [
     },
     {
         "sku": "VIS-6X40-BTE",
-        "name": "Boîte de vis à bois 6x40mm (200 pcs)",
+        "name": "Boite de vis a bois 6x40mm (200 pcs)",
         "category": "Visserie",
         "brand": "Generic",
         "unit": "BOITE",
@@ -285,7 +254,7 @@ PRODUCTS: list[dict] = [
     },
     {
         "sku": "TUB-PVC-110-4M",
-        "name": "Tube PVC évacuation Ø110mm (4m)",
+        "name": "Tube PVC evacuation O110mm (4m)",
         "category": "Plomberie",
         "brand": "Generic",
         "unit": "UNITE",
@@ -296,8 +265,8 @@ PRODUCTS: list[dict] = [
     },
     {
         "sku": "CAB-2X5-100M",
-        "name": "Câble électrique 2x5mm² (rouleau 100m)",
-        "category": "Électricité",
+        "name": "Cable electrique 2x5mm2 (rouleau 100m)",
+        "category": "Electricite",
         "brand": "CIMFASO",
         "unit": "UNITE",
         "purchase_price": "45000",
@@ -376,14 +345,10 @@ def seed_catalog(branches_by_code: dict[str, Branch]) -> None:
     db.session.commit()
 
 
-# ---------------------------------------------------------------------------
-# Clients de démonstration
-# ---------------------------------------------------------------------------
-
 DEMO_CUSTOMERS: list[dict] = [
     {"full_name": "Client comptoir", "phone": None, "customer_type": "SIMPLE", "credit_limit": "0"},
     {
-        "full_name": "Atelier Soudure Koudougou (Karim Traoré)",
+        "full_name": "Atelier Soudure Koudougou (Karim Traore)",
         "phone": "+22670000001",
         "customer_type": "TECHNICIEN",
         "credit_limit": "500000",

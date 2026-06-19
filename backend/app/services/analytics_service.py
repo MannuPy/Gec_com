@@ -1,8 +1,4 @@
-"""
-Calculs partages du tableau de bord etendu (RF-24), reutilises par le
-blueprint `analytics` (`GET /analytics/dashboard`) et par l'export PDF
-(`GET /reports/export`, RF-29).
-"""
+"""Calculs partages du tableau de bord etendu (RF-24)."""
 from __future__ import annotations
 
 from datetime import datetime, time, timedelta
@@ -13,7 +9,7 @@ from app.extensions import db
 from app.models import Branch, Product, Sale, SaleLine, SaleStatus
 
 
-def compute_dashboard(branch_id: str | None = None, days: int = 30) -> dict:
+def compute_dashboard(branch_id=None, days: int = 30) -> dict:
     """Indicateurs etendus : marges, ventilation multi-site, consolide (RF-24)."""
     days = max(1, min(int(days), 365))
     period_start = datetime.combine((datetime.utcnow() - timedelta(days=days - 1)).date(), time.min)
@@ -92,30 +88,15 @@ def compute_dashboard(branch_id: str | None = None, days: int = 30) -> dict:
     }
 
 
-def compute_dashboard_realtime(branch_id: str | None = None) -> dict:
-    """Snapshot temps reel du tableau de bord (cf. 22-DASHBOARD-BI.md section 22.2,
-    section 22.5 - adapte en SSE/polling, cf. decision projet).
-
-    Consomme par `GET /reports/dashboard/realtime` (snapshot ponctuel) et
-    `GET /reports/dashboard/stream` (SSE, rafraichi periodiquement). Combine :
-
-    - **kpis** : CA jour/mois, marge (%), panier moyen (calcules directement
-      sur `sales`/`sale_lines`) ;
-    - **alerts** : dernieres predictions `DEMAND_FORECAST` (alerte_rupture),
-      `ANOMALY` et `CREDIT_SCORE` (risque eleve) ;
-    - **abc_xyz** / **rfm_segments** : dernieres predictions
-      `ABC_XYZ` / `RFM_SEGMENT` (alimentees par la Feature Store, section 21.6).
-
-    Ne relance aucun entrainement : lit uniquement les `predictions` deja
-    calculees par les taches Celery (`etl_*`, `train_*`, section 21.3).
-    """
+def compute_dashboard_realtime(branch_id=None) -> dict:
+    """Snapshot temps reel du tableau de bord."""
     from app.ml import abc_xyz, anomaly_detection, credit_scoring, demand_forecast, rfm_segmentation
 
     now = datetime.utcnow()
     today_start = datetime.combine(now.date(), time.min)
     month_start = datetime.combine(now.date().replace(day=1), time.min)
 
-    def _period_kpis(period_start: datetime) -> tuple[float, int, float]:
+    def _period_kpis(period_start: datetime):
         revenue_query = db.session.query(
             func.coalesce(func.sum(Sale.total), 0).label("revenue"),
             func.count(Sale.id).label("sales_count"),
@@ -144,9 +125,8 @@ def compute_dashboard_realtime(branch_id: str | None = None) -> dict:
     ca_mois, _, marge_pct_mois = _period_kpis(month_start)
     panier_moyen = (ca_jour / sales_count_jour) if sales_count_jour else 0
 
-    alerts: list[dict] = []
+    alerts = []
 
-    # Ruptures de stock prevues (RF-25/RG-38 -> DEMAND_FORECAST.alerte_rupture)
     for item in demand_forecast.latest(alerts_only=True):
         if branch_id and item.get("branch_id") != branch_id:
             continue
@@ -155,15 +135,11 @@ def compute_dashboard_realtime(branch_id: str | None = None) -> dict:
             {
                 "type": "RUPTURE_STOCK",
                 "severity": "CRITICAL" if stock_disponible <= 0 else "WARNING",
-                "message": (
-                    f"Rupture prevue : {item.get('product_name')} "
-                    f"(stock {stock_disponible}, qte recommandee {item.get('quantite_recommandee')})"
-                ),
+                "message": "Rupture prevue : " + str(item.get("product_name")) + " (stock " + str(stock_disponible) + ", qte recommandee " + str(item.get("quantite_recommandee")) + ")",
                 "entity_id": item.get("product_id"),
             }
         )
 
-    # Anomalies de vente (RF-28 -> ANOMALY)
     for item in anomaly_detection.latest():
         if branch_id and item.get("branch_id") != branch_id:
             continue
@@ -172,12 +148,11 @@ def compute_dashboard_realtime(branch_id: str | None = None) -> dict:
             {
                 "type": "ANOMALIE",
                 "severity": "WARNING",
-                "message": f"Vente atypique {item.get('reference')} : {reasons}",
+                "message": "Vente atypique " + str(item.get("reference")) + " : " + reasons,
                 "entity_id": item.get("sale_id"),
             }
         )
 
-    # Clients a risque (RF-26/RF-27 -> CREDIT_SCORE, risque eleve)
     for item in credit_scoring.latest():
         if item.get("risk_level") != "ELEVE":
             continue
@@ -185,7 +160,7 @@ def compute_dashboard_realtime(branch_id: str | None = None) -> dict:
             {
                 "type": "CREDIT_RISK",
                 "severity": "WARNING",
-                "message": f"Client a risque : {item.get('customer_name')} (score {item.get('score')})",
+                "message": "Client a risque : " + str(item.get("customer_name")) + " (score " + str(item.get("score")) + ")",
                 "entity_id": item.get("customer_id"),
             }
         )
@@ -204,17 +179,12 @@ def compute_dashboard_realtime(branch_id: str | None = None) -> dict:
     }
 
 
-def compute_sales_trend(branch_id: str | None = None, days: int = 30) -> list[dict]:
-    """Tendance des ventes jour par jour sur la periode donnee (pour graphiques).
-
-    Retourne une liste de points [{date, revenue, sales_count, margin}]
-    triee chronologiquement, utilisee par les graphiques de la page Analytics.
-    """
+def compute_sales_trend(branch_id=None, days: int = 30) -> list:
+    """Tendance des ventes jour par jour sur la periode donnee."""
     from app.models import SaleLine as SL
     days = max(1, min(int(days), 365))
     period_start = datetime.combine((datetime.utcnow() - timedelta(days=days - 1)).date(), time.min)
 
-    # Revenu + nombre de ventes par jour
     revenue_q = (
         db.session.query(
             func.date(Sale.created_at).label("day"),
@@ -230,7 +200,6 @@ def compute_sales_trend(branch_id: str | None = None, days: int = 30) -> list[di
     revenue_rows = {str(r.day): {"revenue": float(r.revenue), "sales_count": r.sales_count}
                    for r in revenue_q.all()}
 
-    # Cout par jour (pour la marge)
     cost_q = (
         db.session.query(
             func.date(Sale.created_at).label("day"),
@@ -246,7 +215,6 @@ def compute_sales_trend(branch_id: str | None = None, days: int = 30) -> list[di
 
     cost_rows = {str(r.day): float(r.cost) for r in cost_q.all()}
 
-    # Assembler en serie complete (un point par jour, meme si 0 vente)
     result = []
     for i in range(days):
         day = (datetime.utcnow() - timedelta(days=days - 1 - i)).date()
@@ -264,7 +232,7 @@ def compute_sales_trend(branch_id: str | None = None, days: int = 30) -> list[di
     return result
 
 
-def top_products_for_period(branch_id: str | None = None, days: int = 30, limit: int = 10) -> list[dict]:
+def top_products_for_period(branch_id=None, days: int = 30, limit: int = 10) -> list:
     """Produits les plus vendus (par quantite) sur la periode donnee."""
     days = max(1, min(int(days), 365))
     period_start = datetime.combine((datetime.utcnow() - timedelta(days=days - 1)).date(), time.min)

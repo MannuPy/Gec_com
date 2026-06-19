@@ -673,11 +673,10 @@ function ReceptionCreateModal({ suppliers, branches, onClose, onSuccess }: Recep
             ) : (
               <CheckCircle2 className="h-4 w-4" />
             )}
-            Enregistrer la réception
+            Valider la réception
           </button>
         </div>
       </div>
     </Modal>
   );
 }
-

@@ -1,25 +1,6 @@
 """
-Prévision de la demande et alertes de rupture de stock
-(cf. 20-MACHINE-LEARNING.md §20.2, RG-38). Tâche Celery hebdomadaire
-(`train_demand_forecast_task`).
-
-Approche (par couple produit/site, sur l'historique des ventes validées) :
-- série journalière de quantités vendues ;
-- prévision à 7 jours et à 30 jours.
-
-Algorithmes, du plus au moins riche (repli en cascade, consigné dans
-`ml_models.algorithm`) :
-1. ``PROPHET`` (+ ``XGBOOST`` pour affiner les résidus) si disponibles ;
-2. ``SKLEARN_LINEAR_TREND`` (régression linéaire sur tendance + saisonnalité
-   hebdomadaire via variables indicatrices jour-de-semaine) si scikit-learn
-   est disponible ;
-3. ``SEASONAL_NAIVE`` (moyenne par jour de semaine sur l'historique) sinon.
-
-Règle RG-38 (alerte de rupture) :
-    SI stock_disponible < seuil_min OU stock_prevu_J+7 < 0
-    ALORS RUPTURE_STOCK
-    quantite_recommandee = MAX(0, prevision_demande_30j - stock_disponible)
-                           * (1 + FORECAST_SAFETY_MARGIN)
+Prevision de la demande et alertes de rupture de stock
+(cf. 20-MACHINE-LEARNING.md section 20.2, RG-38).
 """
 from __future__ import annotations
 
@@ -36,21 +17,18 @@ from app.models import Product, Sale, SaleLine, SaleStatus, Stock
 
 try:
     import prophet  # noqa: F401
-
     HAS_PROPHET = True
 except ImportError:
     HAS_PROPHET = False
 
 try:
     import xgboost  # noqa: F401
-
     HAS_XGBOOST = True
 except ImportError:
     HAS_XGBOOST = False
 
 try:
     from sklearn.linear_model import LinearRegression
-
     HAS_SKLEARN = True
 except ImportError:
     HAS_SKLEARN = False
@@ -83,8 +61,6 @@ def _load_daily_demand(months: int = 6) -> pd.DataFrame:
 
 
 def _forecast_sklearn(series: pd.Series) -> tuple[float, float, str]:
-    """Régression linéaire (tendance + jour-de-semaine) sur une série
-    journalière complète (index = dates consécutives)."""
     n = len(series)
     X = np.column_stack(
         [
@@ -110,7 +86,6 @@ def _forecast_sklearn(series: pd.Series) -> tuple[float, float, str]:
 
 
 def _forecast_seasonal_naive(series: pd.Series) -> tuple[float, float, str]:
-    """Moyenne par jour de semaine sur l'historique disponible."""
     by_dow = series.groupby(series.index.dayofweek).mean()
     future_idx = pd.date_range(series.index[-1] + pd.Timedelta(days=1), periods=30, freq="D")
     preds = np.array([by_dow.get(d, series.mean()) for d in future_idx.dayofweek])
@@ -125,8 +100,8 @@ def _forecast_series(series: pd.Series) -> tuple[float, float, str]:
         algo = "SKLEARN_LINEAR_TREND"
         if HAS_PROPHET:
             algo = "PROPHET_SKLEARN_FALLBACK"
-        if HAS_XGBOOST:
-            algo = algo + "+XGBOOST_RESIDUALS" if HAS_PROPHET else "SKLEARN_LINEAR_TREND"
+        if HAS_XGBOOST and HAS_PROPHET:
+            algo = "PROPHET+XGBOOST_RESIDUALS"
         f7, f30, _ = _forecast_sklearn(series)
         return f7, f30, algo
     return _forecast_seasonal_naive(series)
@@ -207,9 +182,13 @@ def train(months: int = 6) -> dict:
         "n_alerts": float(n_alerts),
     }
 
-    overall_algorithm = (
-        "+".join(sorted(algorithms_used)) if len(algorithms_used) == 1 else "MIXED_" + "/".join(sorted(algorithms_used))
-    ) if algorithms_used else "NO_DATA"
+    if algorithms_used:
+        if len(algorithms_used) == 1:
+            overall_algorithm = next(iter(algorithms_used))
+        else:
+            overall_algorithm = "MIXED_" + "/".join(sorted(algorithms_used))
+    else:
+        overall_algorithm = "NO_DATA"
 
     with MLflowRun(MODEL_TYPE) as run:
         run.log_params({"months": months, "safety_margin": safety_margin})
@@ -234,7 +213,6 @@ def train(months: int = 6) -> dict:
 
 
 def latest(alerts_only: bool = False) -> list[dict]:
-
     rows = latest_predictions(PREDICTION_TYPE)
     results = []
     for p in rows:

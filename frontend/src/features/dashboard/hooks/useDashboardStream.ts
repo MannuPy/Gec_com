@@ -95,6 +95,11 @@ export function useDashboardStream(branchId?: string | null): DashboardStreamSta
         const decoder = new TextDecoder();
         let buffer = "";
 
+        // Detecte si le serveur a envoye `sse-disabled` (mode DISABLE_SSE=true,
+        // ex. PythonAnywhere/uWSGI mono-worker). Dans ce cas on attend
+        // POLL_INTERVAL_MS avant de se reconnecter pour eviter une boucle rapide.
+        let sseDisabled = false;
+
         while (activeRef.current) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -104,7 +109,21 @@ export function useDashboardStream(branchId?: string | null): DashboardStreamSta
           buffer = events.pop() ?? "";
 
           for (const rawEvent of events) {
-            const dataLine = rawEvent.split("\n").find((line) => line.startsWith("data: "));
+            const lines = rawEvent.split("\n");
+            const eventLine = lines.find((line) => line.startsWith("event: "));
+            const dataLine = lines.find((line) => line.startsWith("data: "));
+
+            const eventType = eventLine ? eventLine.slice("event: ".length).trim() : "message";
+
+            if (eventType === "sse-disabled") {
+              // Backend en mode mono-shot : fermeture immediate apres 1 snapshot.
+              // Basculer sur polling pur et attendre avant de ré-essayer le SSE.
+              sseDisabled = true;
+              setIsLive(false);
+              isLiveRef.current = false;
+              break;
+            }
+
             if (!dataLine) continue;
 
             try {
@@ -114,12 +133,23 @@ export function useDashboardStream(branchId?: string | null): DashboardStreamSta
               // Evenement non-JSON (commentaire de heartbeat) : on l'ignore.
             }
           }
+
+          if (sseDisabled) break;
         }
 
-        // Le flux se termine normalement apres DASHBOARD_STREAM_MAX_EVENTS
-        // iterations cote serveur : on se reconnecte directement.
+        // Le flux se termine normalement (DASHBOARD_STREAM_MAX_EVENTS atteint)
+        // ou via sse-disabled (mode DISABLE_SSE=true).
         if (activeRef.current) {
-          connectStream();
+          if (sseDisabled) {
+            // Attendre POLL_INTERVAL_MS pour eviter une boucle de connexions
+            // rapides : le backend se fermera a nouveau immediatement.
+            reconnectTimer = setTimeout(() => {
+              if (activeRef.current) connectStream();
+            }, POLL_INTERVAL_MS);
+          } else {
+            // Flux SSE complet clos normalement : reconnexion directe.
+            connectStream();
+          }
         }
       } catch {
         if (!activeRef.current) return;

@@ -1,18 +1,4 @@
-"""Routes du blueprint `inventory` : inventaire physique (RF-21 à RF-23).
-
-Cycle de vie d'une session d'inventaire :
-1. `POST /inventory/counts` — ouverture d'une session (EN_COURS), une ligne
-   `stock_count_lines` est créée par produit actif présent en stock sur le
-   site, avec `theoretical_quantity` figée au moment de l'ouverture.
-2. `PATCH /inventory/counts/<id>/lines` — saisie des quantités comptées
-   (RF-22). Tout écart dont la valeur absolue dépasse
-   `INVENTORY_VARIANCE_THRESHOLD_PCT` (RG-33) nécessite un commentaire de
-   justification.
-3. `POST /inventory/counts/<id>/validate` — validation (RF-23) : la session
-   passe à VALIDE et un mouvement `AJUSTEMENT_INVENTAIRE` est généré pour
-   chaque ligne dont l'écart est non nul, alignant le stock théorique sur le
-   stock compté.
-"""
+"""Routes du blueprint `inventory` : inventaire physique (RF-21 a RF-23)."""
 from datetime import datetime
 
 from flask import current_app, jsonify, request
@@ -80,7 +66,7 @@ def list_stock_counts():
 @inventory_bp.get("/counts/<string:count_id>")
 @require_permission("inventory:read")
 def get_stock_count(count_id: str):
-    """Détail d'une session d'inventaire avec ses lignes."""
+    """Detail d'une session d'inventaire avec ses lignes."""
     stock_count = StockCount.query.get(count_id)
     if stock_count is None:
         raise not_found("Session d'inventaire", count_id)
@@ -90,12 +76,7 @@ def get_stock_count(count_id: str):
 @inventory_bp.post("/counts")
 @require_permission("inventory:write")
 def create_stock_count():
-    """Ouvre une nouvelle session d'inventaire (RF-21).
-
-    Une ligne est créée pour chaque produit actif disposant d'une ligne de
-    stock sur le site (y compris à 0), avec `theoretical_quantity` figée au
-    moment de l'ouverture.
-    """
+    """Ouvre une nouvelle session d'inventaire (RF-21)."""
     payload = StockCountCreateSchema().load(request.get_json(silent=True) or {})
 
     branch = Branch.query.get(payload["branch_id"])
@@ -108,7 +89,7 @@ def create_stock_count():
     if existing is not None:
         raise conflict(
             "STOCK_COUNT_IN_PROGRESS",
-            "Une session d'inventaire est déjà en cours pour ce site.",
+            "Une session d'inventaire est deja en cours pour ce site.",
             details={"stock_count_id": existing.id, "reference": existing.reference},
         )
 
@@ -142,12 +123,7 @@ def create_stock_count():
 @inventory_bp.patch("/counts/<string:count_id>/lines")
 @require_permission("inventory:write")
 def update_stock_count_lines(count_id: str):
-    """Saisit les quantités comptées (RF-22) et calcule les écarts.
-
-    RG-33 : tout écart dont la valeur absolue (en %) dépasse
-    `INVENTORY_VARIANCE_THRESHOLD_PCT` doit être accompagné d'un commentaire
-    de justification.
-    """
+    """Saisit les quantites comptees (RF-22) et calcule les ecarts."""
     stock_count = StockCount.query.get(count_id)
     if stock_count is None:
         raise not_found("Session d'inventaire", count_id)
@@ -155,7 +131,7 @@ def update_stock_count_lines(count_id: str):
     if stock_count.status != StockCountStatus.EN_COURS.value:
         raise conflict(
             "STOCK_COUNT_NOT_EDITABLE",
-            "Cette session d'inventaire n'est plus modifiable (déjà validée).",
+            "Cette session d'inventaire n'est plus modifiable (deja validee).",
         )
 
     payload = StockCountLinesUpdateSchema().load(request.get_json(silent=True) or {})
@@ -176,9 +152,9 @@ def update_stock_count_lines(count_id: str):
         comment = entry.get("comment")
         if variance != 0 and variance_pct > threshold_pct and not comment:
             raise validation_error(
-                f"Un écart de {variance:+d} ({variance_pct:.1f}%) sur le produit "
-                f"'{line.product.name}' dépasse le seuil de {threshold_pct}% et "
-                f"doit être justifié (champ 'comment').",
+                "Un ecart de " + str(variance) + " (" + str(round(variance_pct, 1)) + "%) sur le produit "
+                "'" + line.product.name + "' depasse le seuil de " + str(threshold_pct) + "% et "
+                "doit etre justifie (champ 'comment').",
                 details={"product_id": entry["product_id"], "variance": variance, "variance_pct": round(variance_pct, 2)},
             )
 
@@ -194,13 +170,7 @@ def update_stock_count_lines(count_id: str):
 @inventory_bp.post("/counts/<string:count_id>/validate")
 @require_permission("inventory:write")
 def validate_stock_count(count_id: str):
-    """Valide la session d'inventaire (RF-23).
-
-    Pour chaque ligne ayant une quantité comptée et un écart non nul, génère
-    un mouvement `AJUSTEMENT_INVENTAIRE` alignant le stock théorique sur le
-    stock compté. Les lignes non comptées sont ignorées (laissées au stock
-    théorique).
-    """
+    """Valide la session d'inventaire (RF-23)."""
     stock_count = StockCount.query.get(count_id)
     if stock_count is None:
         raise not_found("Session d'inventaire", count_id)
@@ -208,13 +178,13 @@ def validate_stock_count(count_id: str):
     if stock_count.status != StockCountStatus.EN_COURS.value:
         raise conflict(
             "STOCK_COUNT_ALREADY_VALIDATED",
-            "Cette session d'inventaire a déjà été validée.",
+            "Cette session d'inventaire a deja ete validee.",
         )
 
     uncounted = [line for line in stock_count.lines if line.counted_quantity is None]
     if uncounted:
         raise validation_error(
-            f"{len(uncounted)} produit(s) n'ont pas encore été comptés.",
+            str(len(uncounted)) + " produit(s) n'ont pas encore ete comptes.",
             details={"product_ids": [line.product_id for line in uncounted]},
         )
 
@@ -230,7 +200,7 @@ def validate_stock_count(count_id: str):
                 reference_type="STOCK_COUNT",
                 reference_id=stock_count.id,
                 created_by_id=user_id,
-                comment=line.comment or f"Régularisation inventaire {stock_count.reference}",
+                comment="Regularisation inventaire " + stock_count.reference,
                 allow_negative=True,
             )
             adjustments += 1

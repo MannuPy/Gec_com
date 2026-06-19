@@ -19,3 +19,28 @@ export interface CustomerWritePayload {
   customer_type?: CustomerType;
   credit_limit?: string;
 }
+
+// ---- Crédits ----
+
+export interface CreditListParams {
+  branch_id?: string;
+  customer_type?: CustomerType;
+  category_id?: string;
+}
+
+export interface CreditSettlePayload {
+  amount: number;
+  note?: string;
+  paid_date?: string;
+}
+
+export interface CreditSettleResponse {
+  customer: Customer;
+  payment: {
+    id: string;
+    amount: string;
+    paid_date: string;
+    status: string;
+    note: string | null;
+  };
+}

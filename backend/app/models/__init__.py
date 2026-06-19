@@ -1,7 +1,4 @@
-"""
-Regroupe l'ensemble des modeles pour que Flask-Migrate / Alembic detecte
-toutes les tables lors de `flask db migrate`.
-"""
+"""Regroupe l'ensemble des modeles pour que Flask-Migrate / Alembic detecte toutes les tables."""
 from app.models.auth import Role, Permission, RolePermission, User, TokenBlocklist
 from app.models.company import Company, SubscriptionPlan, SubscriptionStatus, UserIndex
 from app.models.catalog import (

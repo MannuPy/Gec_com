@@ -1,10 +1,4 @@
-"""
-Inventaire physique (RF-21 à RF-23).
-
-Cycle de vie : EN_COURS -> VALIDE. La validation calcule les écarts
-(quantité comptée - quantité théorique) et génère les mouvements de stock
-d'ajustement (`AJUSTEMENT_INVENTAIRE`, cf. app.models.catalog.StockMovementType).
-"""
+"""Inventaire physique (RF-21 a RF-23)."""
 import enum
 
 from app.extensions import db
@@ -17,8 +11,6 @@ class StockCountStatus(str, enum.Enum):
 
 
 class StockCount(db.Model, UUIDPrimaryKeyMixin, TimestampMixin):
-    """Session d'inventaire physique sur un site (RF-21)."""
-
     __tablename__ = "stock_counts"
 
     reference = db.Column(db.String(32), unique=True, nullable=False)
@@ -37,12 +29,10 @@ class StockCount(db.Model, UUIDPrimaryKeyMixin, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<StockCount {self.reference} ({self.status})>"
+        return "<StockCount " + self.reference + " (" + self.status + ")>"
 
 
 class StockCountLine(db.Model, UUIDPrimaryKeyMixin):
-    """Ligne de comptage : quantité théorique vs quantité comptée (RF-22)."""
-
     __tablename__ = "stock_count_lines"
 
     stock_count_id = db.Column(db.String(36), db.ForeignKey("stock_counts.id"), nullable=False)

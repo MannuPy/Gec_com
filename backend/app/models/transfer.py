@@ -1,9 +1,4 @@
-"""
-Modèles de transferts inter-sites (dépôt central -> boutiques).
-
-Cf. 07-DIAGRAMMES-UML.md (cycle de vie BROUILLON -> EN_TRANSIT -> RECU /
-ANNULE) et 04-REGLES-METIER.md (RG-17, RG-18).
-"""
+"""Modeles de transferts inter-sites."""
 import enum
 
 from app.extensions import db
@@ -18,8 +13,6 @@ class TransferStatus(str, enum.Enum):
 
 
 class Transfer(db.Model, UUIDPrimaryKeyMixin, TimestampMixin):
-    """Transfert de marchandises entre deux sites (UC-08, UC-09)."""
-
     __tablename__ = "transfers"
 
     reference = db.Column(db.String(32), unique=True, nullable=False)

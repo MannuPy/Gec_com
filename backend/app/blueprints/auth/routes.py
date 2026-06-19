@@ -1,9 +1,4 @@
-"""Routes du blueprint `auth` : login, refresh, logout, profil courant.
-
-Cf. 17-API-REST.md (POST /auth/login, POST /auth/refresh, POST /auth/logout,
-GET /auth/me) et 18-SECURITE.md (RG-36 : access token courte duree + refresh
-token, blocklist en base pour la revocation).
-"""
+"""Routes du blueprint `auth` : login, refresh, logout, profil courant."""
 from datetime import datetime, timezone
 
 from flask import current_app, jsonify, request
@@ -25,12 +20,6 @@ from app.utils.tenant import get_schema_for_email, set_search_path
 
 
 def _build_additional_claims(user: User, company_schema: str) -> dict:
-    """Construit les claims JWT additionnels (role, permissions, site, tenant).
-
-    Le claim `company_schema` (RF-01, section 27.7) permet au middleware
-    `set_tenant_schema` de positionner le `search_path` PostgreSQL sur le
-    schema de l'entreprise cliente lors des requetes suivantes.
-    """
     return {
         "role": user.role.name,
         "permissions": user.role.permission_codes(),
@@ -59,10 +48,6 @@ def login():
     payload = LoginSchema().load(request.get_json(silent=True) or {})
     email = payload["email"].lower()
 
-    # Resolution du tenant (section 27.7) : `public.user_index` indique le schema
-    # PostgreSQL dans lequel chercher cet utilisateur. A defaut d'entree
-    # (compte cree avant le multi-tenant), on retombe sur le tenant par
-    # defaut (V1 mono-tenant, schema `public`).
     company_schema = get_schema_for_email(email)
     set_search_path(company_schema)
 
@@ -71,7 +56,7 @@ def login():
     if user is None or not user.check_password(payload["password"]):
         AuditLog.record(
             event_type="AUTH_LOGIN_FAILED",
-            description=f"Tentative de connexion echouee pour {email}",
+            description="Tentative de connexion echouee pour " + email,
             metadata={"email": email},
         )
         db.session.commit()
@@ -89,7 +74,7 @@ def login():
         user_id=user.id,
         entity_type="User",
         entity_id=user.id,
-        description=f"Connexion reussie de {user.email}",
+        description="Connexion reussie de " + user.email,
     )
     db.session.commit()
 
@@ -102,12 +87,7 @@ def login():
 
 @auth_bp.post("/register")
 def register():
-    """Inscription d'une nouvelle entreprise cliente (RF-01).
-
-    Provisionne un schema PostgreSQL dedie (section 27.4) avec son RBAC par defaut,
-    un site "Depot Central" et un compte ADMIN initial, puis connecte
-    automatiquement cet administrateur (reponse identique a `/auth/login`).
-    """
+    """Inscription d'une nouvelle entreprise cliente (RF-01)."""
     payload = RegisterSchema().load(request.get_json(silent=True) or {})
 
     admin_email = payload["admin_email"].lower()
@@ -130,7 +110,7 @@ def register():
         user_id=admin_user.id,
         entity_type="Company",
         entity_id=company.id,
-        description=f"Inscription de l'entreprise \"{company.name}\" (schema {company.schema_name})",
+        description="Inscription de l'entreprise " + company.name + " (schema " + company.schema_name + ")",
     )
     db.session.commit()
 
@@ -158,8 +138,6 @@ def refresh():
     if user is None or not user.is_active:
         raise ApiError("ACCOUNT_DISABLED", "Ce compte a ete desactive.", status_code=403)
 
-    # Le middleware `set_tenant_schema` a deja positionne `search_path`
-    # d'apres le claim `company_schema` du refresh token ci-dessus.
     company_schema = get_jwt().get("company_schema", current_app.config["DEFAULT_TENANT_SCHEMA"])
     claims = _build_additional_claims(user, company_schema)
     access_token = create_access_token(identity=user.id, additional_claims=claims)
@@ -198,12 +176,7 @@ def me():
 @auth_bp.post("/change-password")
 @jwt_required()
 def change_password():
-    """Change le mot de passe de l'utilisateur authentifie (RF-05).
-
-    Leve `must_change_password` a `False` : utilise aussi bien pour le
-    changement volontaire que pour le changement force a la 1re connexion
-    (compte cree par un administrateur, cf. blueprints/users/routes.py).
-    """
+    """Change le mot de passe de l'utilisateur authentifie (RF-05)."""
     user = User.query.get(get_jwt_identity())
     if user is None:
         raise ApiError("NOT_FOUND", "Utilisateur introuvable.", status_code=404)

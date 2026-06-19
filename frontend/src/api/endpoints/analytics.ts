@@ -67,11 +67,7 @@ export const analyticsApi = {
   /** Registre des modèles ML entraînés (RNF-17, RG-40). */
   mlModels: () => apiClient.get<{ items: MlModel[] }>("/analytics/ml/models").then((r) => r.data.items),
 
-  /** RF-29 : déclenche l'entraînement d'un modèle ML. */
-  trainModel: (modelType: MlModelType | string, async = false) =>
-    apiClient
-      .post<MlTrainResult>(`/analytics/ml/train/${modelType}`, undefined, {
-        params: async ? { async: "true" } : undefined,
-      })
-      .then((r) => r.data),
+  /** RF-29 : déclenche l'entraînement d'un modèle ML côté serveur. */
+  trainModel: (modelType: MlModelType) =>
+    apiClient.post<MlTrainResult>("/analytics/ml/train", { model_type: modelType }).then((r) => r.data),
 };

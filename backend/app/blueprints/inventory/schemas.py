@@ -1,4 +1,4 @@
-"""Schémas marshmallow pour le blueprint `inventory` (RF-21 à RF-23)."""
+"""Schemas marshmallow pour le blueprint inventory (RF-21 a RF-23)."""
 from marshmallow import Schema, fields, validate
 
 

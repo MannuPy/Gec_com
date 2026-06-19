@@ -31,5 +31,8 @@ redis==5.0.7
 # --- Suivi/registre de modeles ML ---
 mlflow==2.14.3
 
-# --- Generation de documents PDF (recus de vente, exports rapports) ---
+# --- Generation de documents PDF (recus de vente RF-19, export rapports RF-29) ---
 reportlab==4.2.2
+
+# --- Export Excel (ventes, stock, credits — endpoints /reports/export/*) ---
+openpyxl==3.1.5

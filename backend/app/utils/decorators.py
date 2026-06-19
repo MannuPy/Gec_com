@@ -1,11 +1,5 @@
 """
-Décorateurs transverses : contrôle d'accès basé sur les rôles (RBAC).
-
-Cf. 18-SECURITE.md (matrice des permissions par endpoint). Chaque permission
-est une chaîne `<ressource>:<action>` (ex. "products:write", "sales:create",
-"audit:read"). Les permissions de l'utilisateur sont injectées dans le JWT
-au moment du login (claim "permissions"), ce qui évite une requête en base
-à chaque appel protégé.
+Decorateurs transverses : controle d'acces base sur les roles (RBAC).
 """
 from functools import wraps
 
@@ -15,12 +9,7 @@ from app.utils.errors import forbidden
 
 
 def require_permission(*required_permissions: str):
-    """Exige que l'utilisateur authentifié possède AU MOINS UNE des permissions listées.
-
-    Exemple:
-        @require_permission("products:write")
-        def create_product(): ...
-    """
+    """Exige que l'utilisateur authentifie possede AU MOINS UNE des permissions listees."""
 
     def decorator(fn):
         @wraps(fn)
@@ -34,8 +23,8 @@ def require_permission(*required_permissions: str):
 
             if not user_permissions.intersection(required_permissions):
                 raise forbidden(
-                    f"Cette action nécessite l'une des permissions suivantes : "
-                    f"{', '.join(required_permissions)}."
+                    "Cette action necessite l'une des permissions suivantes : "
+                    + ", ".join(required_permissions) + "."
                 )
             return fn(*args, **kwargs)
 
@@ -45,7 +34,7 @@ def require_permission(*required_permissions: str):
 
 
 def require_role(*roles: str):
-    """Exige que l'utilisateur authentifié possède l'un des rôles listés."""
+    """Exige que l'utilisateur authentifie possede l'un des roles listes."""
 
     def decorator(fn):
         @wraps(fn)
@@ -54,7 +43,7 @@ def require_role(*roles: str):
             claims = get_jwt()
             if claims.get("role") not in roles:
                 raise forbidden(
-                    f"Cette action est réservée aux rôles : {', '.join(roles)}."
+                    "Cette action est reservee aux roles : " + ", ".join(roles) + "."
                 )
             return fn(*args, **kwargs)
         return wrapper

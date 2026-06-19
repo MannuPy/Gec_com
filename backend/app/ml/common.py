@@ -1,7 +1,7 @@
 """
-Utilitaires partagés par les modules `app.ml.*` : persistance des artefacts,
+Utilitaires partages par les modules `app.ml.*` : persistance des artefacts,
 suivi MLflow (optionnel) et enregistrement dans le registre `ml_models` /
-`predictions` (cf. 20-MACHINE-LEARNING.md §20.7, 21-PIPELINE-ETL.md).
+`predictions` (cf. 20-MACHINE-LEARNING.md).
 """
 from __future__ import annotations
 
@@ -16,14 +16,12 @@ from app.models.ml import MLModel, Prediction
 
 try:
     import joblib
-
     HAS_JOBLIB = True
-except ImportError:  # pragma: no cover - toujours présent normalement
+except ImportError:
     HAS_JOBLIB = False
 
 try:
     import mlflow
-
     HAS_MLFLOW = True
 except ImportError:
     HAS_MLFLOW = False
@@ -37,11 +35,6 @@ def artifact_dir(model_type: str) -> str:
 
 
 def save_artifact(obj: Any, model_type: str, version: str) -> str | None:
-    """Sauvegarde un objet Python (modèle entraîné) via joblib.
-
-    Retourne le chemin du fichier, ou None si joblib est indisponible
-    (le modèle reste alors utilisable uniquement pour la session courante).
-    """
     if not HAS_JOBLIB:
         return None
     path = os.path.join(artifact_dir(model_type), f"{version}.joblib")
@@ -56,11 +49,7 @@ def load_artifact(path: str | None) -> Any | None:
 
 
 class MLflowRun:
-    """Context manager no-op si MLflow est indisponible.
-
-    `run_id` vaut None si MLflow n'est pas installé : ce cas est consigné
-    dans `ml_models.mlflow_run_id` (NULL) sans bloquer l'entraînement.
-    """
+    """Context manager no-op si MLflow est indisponible."""
 
     def __init__(self, model_type: str):
         self.model_type = model_type
@@ -75,10 +64,12 @@ class MLflowRun:
             experiment = current_app.config.get("MLFLOW_EXPERIMENT_NAME", "gescom-bf")
             mlflow.set_tracking_uri(tracking_uri)
             mlflow.set_experiment(experiment)
-            run = mlflow.start_run(run_name=f"{self.model_type}-{datetime.utcnow():%Y%m%d%H%M%S}")
+            run = mlflow.start_run(
+                run_name=model_type + "-" + datetime.utcnow().strftime("%Y%m%d%H%M%S")
+            )
             self.run_id = run.info.run_id
             self._active = True
-        except Exception:  # pragma: no cover - MLflow ne doit jamais bloquer l'entraînement
+        except Exception:
             self.run_id = None
             self._active = False
         return self
@@ -88,7 +79,7 @@ class MLflowRun:
             return
         try:
             mlflow.log_params(params)
-        except Exception:  # pragma: no cover
+        except Exception:
             pass
 
     def log_metrics(self, metrics: dict) -> None:
@@ -96,7 +87,7 @@ class MLflowRun:
             return
         try:
             mlflow.log_metrics({k: float(v) for k, v in metrics.items() if v is not None})
-        except Exception:  # pragma: no cover
+        except Exception:
             pass
 
     def log_artifact(self, path: str | None) -> None:
@@ -104,19 +95,19 @@ class MLflowRun:
             return
         try:
             mlflow.log_artifact(path)
-        except Exception:  # pragma: no cover
+        except Exception:
             pass
 
     def __exit__(self, exc_type, exc, tb) -> None:
         if self._active:
             try:
                 mlflow.end_run()
-            except Exception:  # pragma: no cover
+            except Exception:
                 pass
 
 
 def next_version(model_type: str) -> str:
-    return f"{model_type.lower()}_{datetime.utcnow():%Y%m%d_%H%M%S}"
+    return model_type.lower() + "_" + datetime.utcnow().strftime("%Y%m%d_%H%M%S")
 
 
 def register_model(
@@ -128,11 +119,8 @@ def register_model(
     version: str | None = None,
     deactivate_previous: bool = True,
 ) -> MLModel:
-    """Crée une entrée `ml_models` et désactive les versions précédentes."""
     if deactivate_previous:
-        MLModel.query.filter_by(model_type=model_type, is_active=True).update(
-            {"is_active": False}
-        )
+        MLModel.query.filter_by(model_type=model_type, is_active=True).update({"is_active": False})
 
     model = MLModel(
         model_type=model_type,
@@ -155,13 +143,6 @@ def record_predictions(
     entries: Iterable[dict],
     clear_previous: bool = True,
 ) -> int:
-    """Enregistre une série de `Prediction` rattachées à `model`.
-
-    Chaque entrée doit fournir `entity_type`, `entity_id` (optionnel) et
-    `payload` (dict JSON-sérialisable). Si `clear_previous` est vrai, les
-    prédictions précédentes du même type sont supprimées (on ne garde que
-    la dernière exécution par type, conformément à 21-PIPELINE-ETL.md).
-    """
     if clear_previous:
         Prediction.query.filter_by(prediction_type=prediction_type).delete()
 
@@ -192,7 +173,6 @@ def get_active_model(model_type: str) -> MLModel | None:
 
 
 def latest_predictions(prediction_type: str) -> list:
-    """Retourne les predictions les plus recentes pour un type donne."""
     from app.models.ml import Prediction
     subq = (
         db.session.query(

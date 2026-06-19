@@ -1,4 +1,4 @@
-"""Schémas marshmallow pour le blueprint `products` (catalogue)."""
+"""Schemas marshmallow pour le blueprint products (catalogue)."""
 from marshmallow import Schema, fields, validate
 
 
@@ -40,7 +40,6 @@ class ProductSchema(Schema):
     sku = fields.String()
     barcode = fields.String(allow_none=True)
     name = fields.String()
-    # Désignation en mooré (RF-09) — affichage bilingue du libellé produit.
     name_moore = fields.String(allow_none=True)
     description = fields.String(allow_none=True)
     category_id = fields.String(allow_none=True)
@@ -54,8 +53,6 @@ class ProductSchema(Schema):
     min_stock_threshold = fields.Integer()
     is_active = fields.Boolean()
     created_at = fields.DateTime()
-    # Cf. 26-GESTION-OFFLINE-PWA.md §26.7 : synchronisation incrémentale du
-    # catalogue côté client (paramètre `updated_since` de GET /products).
     updated_at = fields.DateTime()
 
     def get_category_name(self, obj):
@@ -69,7 +66,6 @@ class ProductCreateSchema(Schema):
     sku = fields.String(required=True, validate=validate.Length(min=1, max=32))
     barcode = fields.String(allow_none=True, load_default=None, validate=validate.Length(max=64))
     name = fields.String(required=True, validate=validate.Length(min=2, max=255))
-    # Désignation en mooré (RF-09), facultative.
     name_moore = fields.String(allow_none=True, load_default=None, validate=validate.Length(max=255))
     description = fields.String(allow_none=True, load_default=None)
     category_id = fields.String(allow_none=True, load_default=None)
@@ -84,7 +80,6 @@ class ProductCreateSchema(Schema):
 class ProductUpdateSchema(Schema):
     barcode = fields.String(allow_none=True, validate=validate.Length(max=64))
     name = fields.String(validate=validate.Length(min=2, max=255))
-    # Désignation en mooré (RF-09), facultative.
     name_moore = fields.String(allow_none=True, validate=validate.Length(max=255))
     description = fields.String(allow_none=True)
     category_id = fields.String(allow_none=True)

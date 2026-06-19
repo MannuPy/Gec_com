@@ -190,7 +190,7 @@ def trigger_training(model_type: str):
             jsonify(
                 {
                     "error": "VALIDATION_ERROR",
-                    "message": f"Type de modele inconnu. Valeurs possibles : {', '.join(sorted(TRAIN_FUNCTIONS))}",
+                    "message": "Type de modele inconnu. Valeurs possibles : " + ", ".join(sorted(TRAIN_FUNCTIONS)),
                 }
             ),
             400,

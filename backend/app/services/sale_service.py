@@ -1,9 +1,4 @@
-"""Service métier des ventes (caisse) — RG-20 à RG-27.
-
-Toute la logique de tarification, de remise, de vérification de stock et de
-crédit client est centralisée ici afin que le blueprint `sales` reste une
-simple couche HTTP (cf. 09-BACKEND-FLASK.md).
-"""
+"""Service metier des ventes (caisse) - RG-20 a RG-27."""
 from collections import defaultdict
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -34,24 +29,17 @@ def _round_money(value: Decimal) -> Decimal:
 
 
 def create_sale(payload: dict, cashier_id: str) -> Sale:
-    """Crée et valide une vente (UC-11/UC-12).
-
-    Étapes : tarification (RG-21), validation de la remise (0-100 %),
-    vérification du stock (RG-24), calcul du total (RG-25), gestion du
-    crédit client (RG-26). La vente créée a le statut `VALIDEE` et est
-    immuable (RG-27) : seul un avoir (cf. `create_refund`) peut la corriger.
-    """
+    """Cree et valide une vente (UC-11/UC-12)."""
     discount_rate = payload["discount_rate"]
     if not (0 <= discount_rate <= 100):
         raise validation_error(
-            "Le taux de remise doit être compris entre 0 et 100.",
+            "Le taux de remise doit etre compris entre 0 et 100.",
             details={"discount_rate": discount_rate},
         )
 
     branch_id = payload["branch_id"]
     payment_type = payload["payment_type"]
 
-    # ---- RG-26 : vente à crédit -> client obligatoire ----
     customer = None
     if payload.get("customer_id"):
         customer = Customer.query.get(payload["customer_id"])
@@ -60,14 +48,13 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
 
     if payment_type == PaymentType.CREDIT.value and customer is None:
         raise validation_error(
-            "Une vente à crédit nécessite un client identifié (RG-26).",
+            "Une vente a credit necessite un client identifie (RG-26).",
             details={"customer_id": "requis lorsque payment_type = CREDIT"},
         )
 
-    # ---- RG-21 : tarification selon le type de client ----
     price_type = customer.customer_type if customer else CustomerType.SIMPLE.value
 
-    sale_lines: list[SaleLine] = []
+    sale_lines = []
     subtotal = Decimal("0")
 
     for line in payload["lines"]:
@@ -76,7 +63,7 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
             raise not_found("Produit", line["product_id"])
         if not product.is_active:
             raise validation_error(
-                f"Le produit '{product.name}' est désactivé et ne peut pas être vendu.",
+                "Le produit '" + product.name + "' est desactive et ne peut pas etre vendu.",
                 details={"product_id": product.id},
             )
 
@@ -93,18 +80,16 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
         ))
         subtotal += line_total
 
-    # ---- RG-25 : calcul du total ----
     discount_amount = _round_money(subtotal * Decimal(discount_rate) / Decimal(100))
     total = subtotal - discount_amount
 
-    # ---- RG-26 : vérification du plafond de crédit ----
     if payment_type == PaymentType.CREDIT.value:
         new_balance = customer.credit_balance + total
         if customer.credit_limit > 0 and new_balance > customer.credit_limit:
             raise ApiError(
                 "CREDIT_LIMIT_EXCEEDED",
-                f"Cette vente porterait l'encours du client à {new_balance} FCFA, "
-                f"au-delà de sa limite autorisée ({customer.credit_limit} FCFA).",
+                "Cette vente porterait l'encours du client a " + str(new_balance) + " FCFA, "
+                "au-dela de sa limite autorisee (" + str(customer.credit_limit) + " FCFA).",
                 status_code=409,
                 details={
                     "customer_id": customer.id,
@@ -128,9 +113,8 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
     )
     sale.lines = sale_lines
     db.session.add(sale)
-    db.session.flush()  # assigne sale.id, nécessaire pour les mouvements de stock
+    db.session.flush()
 
-    # ---- RG-24 : vérification et décrément du stock ----
     for sale_line in sale_lines:
         apply_stock_movement(
             product_id=sale_line.product_id,
@@ -140,10 +124,9 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
             reference_type="SALE",
             reference_id=sale.id,
             created_by_id=cashier_id,
-            comment=f"Vente {sale.reference}",
+            comment="Vente " + sale.reference,
         )
 
-    # ---- RG-26 : mise à jour du solde client ----
     if payment_type == PaymentType.CREDIT.value:
         customer.credit_balance = customer.credit_balance + total
 
@@ -152,7 +135,7 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
         user_id=cashier_id,
         entity_type="Sale",
         entity_id=sale.id,
-        description=f"Vente {sale.reference} ({total} FCFA, remise {discount_rate}%)",
+        description="Vente " + sale.reference + " (" + str(total) + " FCFA, remise " + str(discount_rate) + "%)",
         metadata={
             "branch_id": branch_id,
             "discount_rate": discount_rate,
@@ -165,22 +148,28 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
 
 
 def create_refund(sale: Sale, payload: dict, user_id: str) -> Sale:
-    """Émet un avoir (RG-27) : seule voie de correction d'une vente VALIDEE.
-
-    Restocke les quantités retournées (`ENTREE_RETOUR_VENTE`), réduit
-    l'encours du client si la vente d'origine était à crédit, et journalise
-    l'opération. La vente d'origine n'est jamais modifiée.
-    """
+    """Cree un avoir EN ATTENTE D'APPROBATION (RG-27)."""
     if sale.status != SaleStatus.VALIDEE.value:
         raise ApiError(
             "SALE_NOT_REFUNDABLE",
-            "Seule une vente validée peut faire l'objet d'un avoir.",
+            "Seule une vente validee peut faire l'objet d'un avoir.",
+            status_code=409,
+        )
+
+    existing_pending = Sale.query.filter_by(
+        refund_of_sale_id=sale.id,
+        status=SaleStatus.EN_ATTENTE_APPROBATION.value,
+    ).first()
+    if existing_pending is not None:
+        raise ApiError(
+            "REFUND_ALREADY_PENDING",
+            "Un retour est deja en attente d'approbation pour cette vente.",
             status_code=409,
         )
 
     lines_by_product = {line.product_id: line for line in sale.lines}
 
-    refund_lines: list[SaleLine] = []
+    refund_lines = []
     subtotal = Decimal("0")
 
     for refund_line in payload["lines"]:
@@ -193,7 +182,7 @@ def create_refund(sale: Sale, payload: dict, user_id: str) -> Sale:
 
         if refund_line["quantity"] > original_line.quantity:
             raise validation_error(
-                "La quantité retournée dépasse la quantité vendue.",
+                "La quantite retournee depasse la quantite vendue.",
                 details={
                     "product_id": refund_line["product_id"],
                     "sold_quantity": original_line.quantity,
@@ -217,7 +206,7 @@ def create_refund(sale: Sale, payload: dict, user_id: str) -> Sale:
     total = subtotal - discount_amount
 
     refund = Sale(
-        reference=generate_reference("AVR"),
+        reference=generate_reference("RET"),
         branch_id=sale.branch_id,
         cashier_id=user_id,
         customer_id=sale.customer_id,
@@ -226,104 +215,138 @@ def create_refund(sale: Sale, payload: dict, user_id: str) -> Sale:
         discount_amount=discount_amount,
         total=total,
         payment_type=sale.payment_type,
-        status=SaleStatus.AVOIR_EMIS.value,
+        status=SaleStatus.EN_ATTENTE_APPROBATION.value,
         refund_of_sale_id=sale.id,
     )
     refund.lines = refund_lines
     db.session.add(refund)
-    db.session.flush()
-
-    for refund_line in refund_lines:
-        apply_stock_movement(
-            product_id=refund_line.product_id,
-            branch_id=sale.branch_id,
-            quantity=refund_line.quantity,
-            movement_type=StockMovementType.ENTREE_RETOUR_VENTE.value,
-            reference_type="SALE_REFUND",
-            reference_id=refund.id,
-            created_by_id=user_id,
-            comment=f"Avoir {refund.reference} (vente {sale.reference})",
-        )
-
-    if sale.payment_type == PaymentType.CREDIT.value and sale.customer is not None:
-        sale.customer.credit_balance = max(Decimal("0"), sale.customer.credit_balance - total)
 
     AuditLog.record(
-        event_type="SALE_REFUNDED",
+        event_type="REFUND_INITIATED",
         user_id=user_id,
         entity_type="Sale",
-        entity_id=refund.id,
-        description=f"Avoir {refund.reference} émis pour la vente {sale.reference} : {payload['reason']}",
-        metadata={"refund_of_sale_id": sale.id, "total": str(total), "reason": payload["reason"]},
+        entity_id=sale.id,
+        description="Retour produit initie par le vendeur sur la vente " + sale.reference + " ("
+            + str(total) + " FCFA) - en attente d'approbation admin. Motif : " + payload.get("reason", ""),
+        metadata={"sale_id": sale.id, "total": str(total), "reason": payload.get("reason", "")},
     )
 
     db.session.commit()
     return refund
 
 
-# ---------------------------------------------------------------------------
-# Synchronisation des ventes hors-ligne (RF-20, RG-28 à RG-30)
-# ---------------------------------------------------------------------------
+def approve_refund(refund: Sale, admin_id: str) -> Sale:
+    """Approuve un retour en attente (admin uniquement)."""
+    if refund.status != SaleStatus.EN_ATTENTE_APPROBATION.value:
+        raise ApiError(
+            "REFUND_NOT_PENDING",
+            "Ce retour n'est pas en attente d'approbation.",
+            status_code=409,
+        )
+
+    original_sale = Sale.query.get(refund.refund_of_sale_id)
+
+    for refund_line in refund.lines:
+        apply_stock_movement(
+            product_id=refund_line.product_id,
+            branch_id=refund.branch_id,
+            quantity=refund_line.quantity,
+            movement_type=StockMovementType.ENTREE_RETOUR_VENTE.value,
+            reference_type="SALE_REFUND",
+            reference_id=refund.id,
+            created_by_id=admin_id,
+            comment="Retour approuve " + refund.reference + " (vente " + (original_sale.reference if original_sale else "?") + ")",
+        )
+
+    if refund.payment_type == PaymentType.CREDIT.value and refund.customer is not None:
+        refund.customer.credit_balance = max(
+            Decimal("0"), refund.customer.credit_balance - refund.total
+        )
+
+    refund.status = SaleStatus.AVOIR_EMIS.value
+    refund.approved_by_id = admin_id
+
+    if original_sale:
+        original_sale.status = SaleStatus.AVOIR_EMIS.value
+
+    AuditLog.record(
+        event_type="REFUND_APPROVED",
+        user_id=admin_id,
+        entity_type="Sale",
+        entity_id=refund.id,
+        description="Retour " + refund.reference + " approuve par l'admin. Stock reintegre, encours mis a jour (" + str(refund.total) + " FCFA).",
+        metadata={"refund_id": refund.id, "original_sale_id": str(refund.refund_of_sale_id)},
+    )
+
+    db.session.commit()
+    return refund
+
+
+def reject_refund(refund: Sale, admin_id: str, reason: str = "") -> Sale:
+    """Rejette un retour en attente (admin uniquement)."""
+    if refund.status != SaleStatus.EN_ATTENTE_APPROBATION.value:
+        raise ApiError(
+            "REFUND_NOT_PENDING",
+            "Ce retour n'est pas en attente d'approbation.",
+            status_code=409,
+        )
+
+    refund.status = SaleStatus.ANNULEE.value
+    refund.approved_by_id = admin_id
+
+    AuditLog.record(
+        event_type="REFUND_REJECTED",
+        user_id=admin_id,
+        entity_type="Sale",
+        entity_id=refund.id,
+        description="Retour " + refund.reference + " rejete par l'admin. Motif : " + reason,
+        metadata={"refund_id": refund.id, "reason": reason},
+    )
+
+    db.session.commit()
+    return refund
+
 
 def sync_offline_sale(item: dict, cashier_id: str) -> dict:
-    """Synchronise une vente saisie hors-ligne (cf. 26-GESTION-OFFLINE-PWA.md).
-
-    - RG-28 : idempotence via `offline_uuid` -> `DEJA_SYNCHRONISE` sans nouvelle
-      écriture si la vente est déjà connue côté serveur (rejeu réseau).
-    - Sécurité (18-SECURITE.md) : le client n'envoie jamais de prix, le serveur
-      revalide systématiquement la tarification (RG-21) et le stock (RG-24).
-    - RG-29/RG-30 : si le stock réel est insuffisant, la vente est tout de même
-      enregistrée avec le statut `EN_CONFLIT` et le stock est mis en négatif
-      contrôlé, pour régularisation manuelle ultérieure par l'admin. Aucune
-      vente n'est rejetée silencieusement.
-    - Si une remise >= seuil (RG-23) ne peut être validée (approbateur absent
-      ou invalide au moment de la synchronisation), la vente est enregistrée
-      uniquement les conflits de stock réels (RG-29/RG-30).
-    """
+    """Synchronise une vente saisie hors-ligne (cf. 26-GESTION-OFFLINE-PWA.md)."""
     offline_uuid = item["offline_uuid"]
 
-    # ---- RG-28 : idempotence ----
     existing = Sale.query.filter_by(offline_uuid=offline_uuid).first()
     if existing is not None:
         return {
             "offline_uuid": offline_uuid,
             "status": "DEJA_SYNCHRONISE",
             "sale_id": existing.id,
-            "message": "Cette vente a déjà été synchronisée précédemment (idempotence RG-28).",
+            "message": "Cette vente a deja ete synchronisee precedemment (idempotence RG-28).",
         }
 
     branch_id = item["branch_id"]
     payment_type = item["payment_type"]
     discount_rate = item["discount_rate"]
-    notes: list[str] = []
+    notes = []
 
-    # Remise libre 0-100 % — revalidation serveur (plage sécurisée)
     if not (0 <= discount_rate <= 100):
-        notes.append(f"Taux de remise {discount_rate}% hors plage, ramené à 0%.")
+        notes.append("Taux de remise " + str(discount_rate) + "% hors plage, ramene a 0%.")
         discount_rate = 0
 
-    # ---- RG-26 : client requis pour une vente à crédit ----
     customer = None
     if item.get("customer_id"):
         customer = Customer.query.get(item["customer_id"])
         if customer is None:
-            notes.append("Client introuvable côté serveur, vente traitée sans client.")
+            notes.append("Client introuvable cote serveur, vente traitee sans client.")
 
     if payment_type == PaymentType.CREDIT.value and customer is None:
-        notes.append("Vente à crédit sans client identifié (RG-26), repassée en CASH.")
+        notes.append("Vente a credit sans client identifie (RG-26), repassee en CASH.")
         payment_type = PaymentType.CASH.value
 
-    # ---- RG-21 : tarification serveur (le client n'envoie jamais de prix) ----
     price_type = customer.customer_type if customer else CustomerType.SIMPLE.value
 
-    sale_lines: list[SaleLine] = []
+    sale_lines = []
     subtotal = Decimal("0")
     for line in item["lines"]:
         product = Product.query.get(line["product_id"])
         if product is None or not product.is_active:
-            notes.append(
-                f"Produit {line['product_id']} introuvable ou désactivé, ligne ignorée."
-            )
+            notes.append("Produit " + str(line["product_id"]) + " introuvable ou desactive, ligne ignoree.")
             continue
 
         quantity = line["quantity"]
@@ -347,12 +370,10 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
             "message": " ".join(notes) or "Aucun produit valide dans cette vente.",
         }
 
-    # ---- RG-25 : calcul du total ----
     discount_amount = _round_money(subtotal * Decimal(discount_rate) / Decimal(100))
     total = subtotal - discount_amount
 
-    # ---- RG-29 : vérification du stock réel à la synchronisation ----
-    needed_by_product: dict[str, int] = defaultdict(int)
+    needed_by_product = defaultdict(int)
     for sale_line in sale_lines:
         needed_by_product[sale_line.product_id] += sale_line.quantity
 
@@ -364,17 +385,15 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
             has_stock_conflict = True
             break
 
-    # ---- Détermination du statut final ----
     if has_stock_conflict:
         status = SaleStatus.EN_CONFLIT.value
         notes.append(
             "Stock insuffisant au moment de la synchronisation (RG-29) : vente "
-            "enregistrée en conflit, stock mis en négatif contrôlé (RG-30)."
+            "enregistree en conflit, stock mis en negatif controle (RG-30)."
         )
     else:
         status = SaleStatus.VALIDEE.value
 
-    # RG-28/RG-30 : conserver l'horodatage du poste de caisse pour l'ordre chronologique
     created_at = item.get("created_at_local") or datetime.utcnow()
 
     sale = Sale(
@@ -396,7 +415,6 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
     db.session.add(sale)
     db.session.flush()
 
-    # ---- RG-24/RG-29/RG-30 : mouvements de stock (négatif contrôlé autorisé) ----
     for sale_line in sale_lines:
         apply_stock_movement(
             product_id=sale_line.product_id,
@@ -406,11 +424,10 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
             reference_type="SALE",
             reference_id=sale.id,
             created_by_id=cashier_id,
-            comment=f"Vente hors-ligne {sale.reference} (synchronisation)",
+            comment="Vente hors-ligne " + sale.reference + " (synchronisation)",
             allow_negative=True,
         )
 
-    # ---- RG-26 : mise à jour du solde client ----
     if payment_type == PaymentType.CREDIT.value and customer is not None:
         customer.credit_balance = customer.credit_balance + total
 
@@ -419,10 +436,7 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
         user_id=cashier_id,
         entity_type="Sale",
         entity_id=sale.id,
-        description=(
-            f"Vente hors-ligne {sale.reference} synchronisée "
-            f"({total} FCFA, statut {status})"
-        ),
+        description="Vente hors-ligne " + sale.reference + " synchronisee (" + str(total) + " FCFA, statut " + status + ")",
         metadata={
             "offline_uuid": offline_uuid,
             "branch_id": branch_id,
@@ -437,10 +451,7 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
             user_id=cashier_id,
             entity_type="Sale",
             entity_id=sale.id,
-            description=(
-                f"Conflit de stock à la synchronisation de la vente {sale.reference} "
-                "(RG-29) : régularisation manuelle requise."
-            ),
+            description="Conflit de stock a la synchronisation de la vente " + sale.reference + " (RG-29) : regularisation manuelle requise.",
             metadata={"offline_uuid": offline_uuid, "branch_id": branch_id},
         )
 
@@ -454,17 +465,13 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
     }
 
 
-def sync_offline_sales(items: list[dict], cashier_id: str) -> list[dict]:
-    """Synchronise un lot de ventes hors-ligne (POST /sales/sync).
-
-    Chaque vente est traitee independamment : un echec inattendu sur l'une
-    n'empeche pas le traitement des suivantes.
-    """
+def sync_offline_sales(items: list, cashier_id: str) -> list:
+    """Synchronise un lot de ventes hors-ligne (POST /sales/sync)."""
     results = []
     for item in items:
         try:
             result = sync_offline_sale(item, cashier_id)
             results.append({"offline_uuid": item.get("offline_uuid"), "status": "ok", **result})
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             results.append({"offline_uuid": item.get("offline_uuid"), "status": "error", "error": str(exc)})
     return results

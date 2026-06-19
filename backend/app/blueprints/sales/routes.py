@@ -24,8 +24,14 @@ from app.blueprints.sales.schemas import (
     SaleSyncResultSchema,
 )
 from app.extensions import db
-from app.models import AuditLog, Customer, CustomerPayment, CustomerPaymentStatus, Sale
-from app.services.sale_service import create_refund, create_sale, sync_offline_sales
+from app.models import AuditLog, Customer, CustomerPayment, CustomerPaymentStatus, Product, Sale, SaleLine
+from app.services.sale_service import (
+    approve_refund,
+    create_refund,
+    create_sale,
+    reject_refund,
+    sync_offline_sales,
+)
 from app.utils.decorators import require_permission
 from app.utils.errors import conflict, not_found
 from app.utils.pdf import build_sale_receipt_pdf, pdf_response
@@ -307,3 +313,6 @@ def update_customer_payment(customer_id: str, payment_id: str):
     )
     db.session.commit()
     return jsonify(CustomerPaymentSchema().dump(payment)), 200
+
+
+# ------------------------------------

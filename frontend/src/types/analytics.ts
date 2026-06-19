@@ -192,14 +192,14 @@ export interface MlTrainResult {
   status: "completed" | "queued";
   model_type: string;
   result?: Record<string, unknown>;
-  task_id?: string;
 }
 
 // ---------------------------------------------------------------------------
-// Enveloppes génériques `{ items, count }` utilisées par plusieurs endpoints
+// Enveloppe generique pour les listes paginées renvoyées par l'API analytics
+// (ex. /analytics/forecast, /analytics/credit-scores, /analytics/abc-xyz)
 // ---------------------------------------------------------------------------
 
 export interface AnalyticsItemsResponse<T> {
   items: T[];
-  count: number;
+  total?: number;
 }

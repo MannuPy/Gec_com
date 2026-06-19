@@ -2,13 +2,17 @@ import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   ArrowLeftRight,
+  BarChart2,
+  BookOpen,
   BrainCircuit,
   ClipboardList,
+  CreditCard,
   LayoutDashboard,
   LogOut,
   Menu,
   Package,
   Receipt,
+  RotateCcw,
   ScrollText,
   ShoppingCart,
   Store,
@@ -37,26 +41,22 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Tableau de bord", icon: LayoutDashboard, permission: "reports:read" },
   { to: "/produits", label: "Produits", icon: Package, permission: "products:read" },
   { to: "/caisse", label: "Caisse", icon: ShoppingCart, permission: "sales:create" },
+  { to: "/mon-tableau-de-bord", label: "Ma performance", icon: BarChart2, permission: "sales:create" },
   { to: "/ventes", label: "Historique des ventes", icon: Receipt, permission: "sales:read" },
   { to: "/clients", label: "Clients", icon: Users, permission: "customers:read" },
   { to: "/stock", label: "Stock", icon: Warehouse, permission: "stock:read" },
   { to: "/inventaire", label: "Inventaire physique", icon: ClipboardList, permission: "inventory:read" },
   { to: "/fournisseurs", label: "Fournisseurs", icon: Truck, permission: "suppliers:read" },
   { to: "/transferts", label: "Transferts", icon: ArrowLeftRight, permission: "transfers:read" },
+  { to: "/credits", label: "Credits clients", icon: CreditCard, permission: "customers:read" },
+  { to: "/retours", label: "Retours produits", icon: RotateCcw, permission: "sales:read" },
+  { to: "/comptabilite", label: "Comptabilite", icon: BookOpen, permission: "reports:read" },
   { to: "/analytique", label: "Analytique & IA", icon: BrainCircuit, permission: "analytics:read" },
   { to: "/utilisateurs", label: "Utilisateurs", icon: UserCog, permission: "users:read" },
   { to: "/audit", label: "Journal d'audit", icon: ScrollText, permission: "users:read" },
 ];
 
-/**
- * Layout principal — sidebar responsive :
- * - Mobile (<lg) : tiroir (drawer) ouvert via bouton hamburger, overlay cliquable pour fermer.
- * - Desktop (≥lg) : sidebar fixe w-64 toujours visible.
- *
- * Couleurs : palette Adobe Color (#011140 sidebar, #0439D9 actif, #F2F2F2 fond).
- */
 export function AppLayout() {
-  const user = useAuthStore((s) => s.user);
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const clearSession = useAuthStore((s) => s.clearSession);
   const navigate = useNavigate();
@@ -64,14 +64,13 @@ export function AppLayout() {
 
   const visibleItems = NAV_ITEMS.filter((item) => !item.permission || hasPermission(item.permission));
 
-  // Synchronisation différée des ventes hors-ligne (RF-20, §26.5/§26.6).
   useSyncOfflineSales();
 
   const handleLogout = async () => {
     try {
       await authApi.logout();
     } catch {
-      // Le logout échoue silencieusement si le token est déjà invalide.
+      // silencieux si token invalide
     } finally {
       clearSession();
       navigate("/login", { replace: true });
@@ -82,8 +81,6 @@ export function AppLayout() {
 
   return (
     <div className="flex h-screen bg-surface text-primary-dark">
-
-      {/* ── Overlay mobile (fond semi-transparent) ───────────────────── */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-20 bg-black/50 lg:hidden"
@@ -92,19 +89,14 @@ export function AppLayout() {
         />
       )}
 
-      {/* ── Sidebar ──────────────────────────────────────────────────── */}
       <aside
         className={clsx(
-          // Base : position fixe sur mobile (drawer), statique sur desktop
           "fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-primary-dark text-white",
           "transition-transform duration-300 ease-in-out",
-          // Mobile : caché par défaut, slide-in quand ouvert
           sidebarOpen ? "translate-x-0" : "-translate-x-full",
-          // Desktop (≥lg) : toujours visible, position dans le flux
           "lg:relative lg:translate-x-0",
         )}
       >
-        {/* Logo + bouton fermeture (mobile seulement) */}
         <div className="flex items-center justify-between px-5 py-5">
           <div className="flex items-center gap-2">
             <Store className="h-6 w-6 text-primary-light" />
@@ -120,7 +112,6 @@ export function AppLayout() {
           </button>
         </div>
 
-        {/* Navigation */}
         <nav className="mt-2 flex-1 space-y-1 overflow-y-auto px-3">
           {visibleItems.map(({ to, label, icon: Icon }) => (
             <NavLink
@@ -148,10 +139,7 @@ export function AppLayout() {
         </div>
       </aside>
 
-      {/* ── Contenu principal ──────────────────────────────────────── */}
       <div className="flex flex-1 flex-col overflow-hidden">
-
-        {/* En-tête mobile : bouton hamburger + logo */}
         <header className="flex items-center gap-3 border-b border-surface bg-white px-4 py-3 lg:hidden">
           <button
             type="button"
@@ -167,21 +155,20 @@ export function AppLayout() {
           </div>
         </header>
 
-        {/* Barre de statut : connexion + sync + déconnexion */}
-        <div className="flex items-center justify-end gap-3 border-b border-surface bg-white px-4 py-2">
+        <div className="flex items-center justify-end gap-2 border-b border-surface bg-white px-3 py-1.5 sm:gap-3 sm:px-4 sm:py-2">
           <ConnectionBadge />
           <PendingSyncBadge />
           <button
             type="button"
-            className="btn-ghost flex items-center gap-2 text-sm"
+            className="btn-ghost flex items-center gap-1.5 px-2 py-1 text-sm sm:px-4 sm:py-2"
             onClick={handleLogout}
+            aria-label="Deconnexion"
           >
-            <LogOut className="h-4 w-4" />
-            <span className="hidden sm:inline">Déconnexion</span>
+            <LogOut className="h-4 w-4 shrink-0" />
+            <span className="hidden sm:inline">Deconnexion</span>
           </button>
         </div>
 
-        {/* Zone de contenu scrollable */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
           <Outlet />
         </main>

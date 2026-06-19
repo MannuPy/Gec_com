@@ -429,9 +429,9 @@ export default function POSPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-6">
         {/* Recherche et selection de produits */}
-        <div className="card lg:col-span-2">
+        <div className="card order-2 lg:order-1 lg:col-span-2">
           <h2 className="card-title">Produits</h2>
 
           <div className="relative mb-4">
@@ -499,8 +499,8 @@ export default function POSPage() {
           </div>
         </div>
 
-        {/* Panier et encaissement */}
-        <div className="card flex flex-col gap-4">
+        {/* Panier et encaissement — en premier sur mobile (order-1) */}
+        <div className="card order-1 flex flex-col gap-4 lg:order-2">
           <h2 className="card-title flex items-center gap-2">
             <ShoppingCart className="h-4 w-4" />
             Panier
@@ -516,28 +516,31 @@ export default function POSPage() {
                     <p className="truncate text-sm font-medium text-primary-dark">{line.product.name}</p>
                     <p className="text-xs text-muted">{formatCurrency(unitPriceFor(line.product))}</p>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-0.5">
                     <button
                       type="button"
-                      className="btn-ghost p-1"
+                      className="btn-ghost min-h-[36px] min-w-[36px] p-1.5"
+                      aria-label="Diminuer"
                       onClick={() => updateQuantity(line.product.id, line.quantity - 1)}
                     >
-                      <Minus className="h-3.5 w-3.5" />
+                      <Minus className="h-4 w-4" />
                     </button>
-                    <span className="w-8 text-center text-sm font-medium">{line.quantity}</span>
+                    <span className="w-8 text-center text-sm font-semibold">{line.quantity}</span>
                     <button
                       type="button"
-                      className="btn-ghost p-1"
+                      className="btn-ghost min-h-[36px] min-w-[36px] p-1.5"
+                      aria-label="Augmenter"
                       onClick={() => updateQuantity(line.product.id, line.quantity + 1)}
                     >
-                      <Plus className="h-3.5 w-3.5" />
+                      <Plus className="h-4 w-4" />
                     </button>
                     <button
                       type="button"
-                      className="btn-ghost p-1 text-red-600"
+                      className="btn-ghost min-h-[36px] min-w-[36px] p-1.5 text-red-600"
+                      aria-label="Supprimer"
                       onClick={() => removeFromCart(line.product.id)}
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -655,9 +658,8 @@ export default function POSPage() {
             {createSaleMutation.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <ShoppingCart className="h-4 w-4" />
+              "Valider la vente"
             )}
-            {isOnline ? "Encaisser" : "Encaisser (hors-ligne)"}
           </button>
         </div>
       </div>

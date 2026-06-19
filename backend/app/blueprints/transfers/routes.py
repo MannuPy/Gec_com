@@ -1,9 +1,4 @@
-"""Routes du blueprint `transfers` : cycle de vie BROUILLON -> EN_TRANSIT -> RECU.
-
-Cf. 07-DIAGRAMMES-UML.md (diagramme d'état du transfert) et
-04-REGLES-METIER.md (RG-17 : sortie de stock à l'expédition, RG-18 : écarts
-de réception consignés via `variance_comment`).
-"""
+"""Routes du blueprint `transfers` : cycle de vie BROUILLON -> EN_TRANSIT -> RECU."""
 from datetime import datetime
 
 from flask import jsonify, request
@@ -48,13 +43,13 @@ def list_transfers():
 @transfers_bp.post("")
 @require_permission("transfers:write")
 def create_transfer():
-    """Crée un transfert en BROUILLON (RF-12)."""
+    """Cree un transfert en BROUILLON (RF-12)."""
     payload = TransferCreateSchema().load(request.get_json(silent=True) or {})
 
     if payload["source_branch_id"] == payload["destination_branch_id"]:
         raise validation_error(
-            "Le site source et le site destination doivent être différents.",
-            details={"destination_branch_id": "doit être différent de source_branch_id"},
+            "Le site source et le site destination doivent etre differents.",
+            details={"destination_branch_id": "doit etre different de source_branch_id"},
         )
 
     if Branch.query.get(payload["source_branch_id"]) is None:
@@ -98,7 +93,7 @@ def get_transfer(transfer_id: str):
 @transfers_bp.post("/<string:transfer_id>/send")
 @require_permission("transfers:write")
 def send_transfer(transfer_id: str):
-    """Expédie un transfert BROUILLON : sortie de stock du site source (RG-17)."""
+    """Expedie un transfert BROUILLON : sortie de stock du site source (RG-17)."""
     transfer = Transfer.query.get(transfer_id)
     if transfer is None:
         raise not_found("Transfert", transfer_id)
@@ -106,7 +101,7 @@ def send_transfer(transfer_id: str):
     if transfer.status != TransferStatus.BROUILLON.value:
         raise ApiError(
             "TRANSFER_NOT_DRAFT",
-            "Seul un transfert en brouillon peut être expédié.",
+            "Seul un transfert en brouillon peut etre expedie.",
             status_code=409,
         )
 
@@ -119,7 +114,7 @@ def send_transfer(transfer_id: str):
             reference_type="TRANSFER",
             reference_id=transfer.id,
             created_by_id=get_jwt_identity(),
-            comment=f"Expédition transfert {transfer.reference}",
+            comment="Expedition transfert " + transfer.reference,
         )
 
     transfer.status = TransferStatus.EN_TRANSIT.value
@@ -133,9 +128,7 @@ def send_transfer(transfer_id: str):
 @transfers_bp.post("/<string:transfer_id>/receive")
 @require_permission("transfers:write")
 def receive_transfer(transfer_id: str):
-    """Réceptionne un transfert EN_TRANSIT : entrée de stock du site
-    destination (RG-17), avec consignation des écarts (RG-18).
-    """
+    """Receptionne un transfert EN_TRANSIT (RG-17/RG-18)."""
     transfer = Transfer.query.get(transfer_id)
     if transfer is None:
         raise not_found("Transfert", transfer_id)
@@ -143,7 +136,7 @@ def receive_transfer(transfer_id: str):
     if transfer.status != TransferStatus.EN_TRANSIT.value:
         raise ApiError(
             "TRANSFER_NOT_IN_TRANSIT",
-            "Seul un transfert en transit peut être réceptionné.",
+            "Seul un transfert en transit peut etre receptionne.",
             status_code=409,
         )
 
@@ -158,8 +151,8 @@ def receive_transfer(transfer_id: str):
         quantity_received = received_line["quantity_received"]
         if quantity_received != line.quantity_sent and not received_line.get("variance_comment"):
             raise validation_error(
-                "Un écart entre la quantité expédiée et reçue doit être motivé (RG-18).",
-                details={"line_id": line.id, "variance_comment": "requis en cas d'écart"},
+                "Un ecart entre la quantite expediee et recue doit etre motive (RG-18).",
+                details={"line_id": line.id, "variance_comment": "requis en cas d'ecart"},
             )
 
         line.quantity_received = quantity_received
@@ -174,7 +167,7 @@ def receive_transfer(transfer_id: str):
                 reference_type="TRANSFER",
                 reference_id=transfer.id,
                 created_by_id=get_jwt_identity(),
-                comment=f"Réception transfert {transfer.reference}",
+                comment="Reception transfert " + transfer.reference,
             )
 
     transfer.status = TransferStatus.RECU.value
@@ -207,7 +200,7 @@ def cancel_transfer(transfer_id: str):
         user_id=get_jwt_identity(),
         entity_type="Transfer",
         entity_id=str(transfer.id),
-        description=f"Transfert {transfer.reference} annule.",
+        description="Transfert " + transfer.reference + " annule.",
     )
     db.session.commit()
     return jsonify(transfer_schema.dump(transfer))

@@ -1,5 +1,11 @@
 import { apiClient } from "@/api/client";
-import type { Customer, CustomerWritePayload } from "@/types/customer";
+import type {
+  Customer,
+  CustomerWritePayload,
+  CreditSettlePayload,
+  CreditSettleResponse,
+  CreditListParams,
+} from "@/types/customer";
 
 export const customersApi = {
   list: (search?: string) =>
@@ -14,4 +20,12 @@ export const customersApi = {
 
   update: (id: string, payload: CustomerWritePayload) =>
     apiClient.put<Customer>(`/sales/customers/${id}`, payload).then((r) => r.data),
+
+  listCredits: (params: CreditListParams = {}) =>
+    apiClient.get<Customer[]>("/sales/credits", { params }).then((r) => r.data),
+
+  settleCredit: (customerId: string, payload: CreditSettlePayload) =>
+    apiClient
+      .post<CreditSettleResponse>(`/sales/customers/${customerId}/settle`, payload)
+      .then((r) => r.data),
 };

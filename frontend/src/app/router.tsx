@@ -19,6 +19,10 @@ const AuditLogPage = lazy(() => import("@/features/audit/pages/AuditLogPage"));
 const SalesHistoryPage = lazy(() => import("@/features/sales/pages/SalesHistoryPage"));
 const AnalyticsPage = lazy(() => import("@/features/analytics/pages/AnalyticsPage"));
 const InventoryPage = lazy(() => import("@/features/inventory/pages/InventoryPage"));
+const CreditsPage = lazy(() => import("@/features/credits/pages/CreditsPage"));
+const RefundsPage = lazy(() => import("@/features/refunds/pages/RefundsPage"));
+const VendeurDashboardPage = lazy(() => import("@/features/vendeur/pages/VendeurDashboardPage"));
+const ComptaPage = lazy(() => import("@/features/compta/pages/ComptaPage"));
 
 function Loading() {
   return (
@@ -41,8 +45,6 @@ export const router = createBrowserRouter([
     element: <ProtectedRoute />,
     children: [
       {
-        // RF-05 : page de changement de mot de passe obligatoire, en dehors
-        // de l'AppLayout (pas de menu/navigation avant le changement).
         path: "changer-mot-de-passe",
         element: withSuspense(<ChangePasswordPage />),
       },
@@ -96,6 +98,22 @@ export const router = createBrowserRouter([
           {
             element: <RequirePermission permission="inventory:read" />,
             children: [{ path: "inventaire", element: withSuspense(<InventoryPage />) }],
+          },
+          {
+            element: <RequirePermission permission="customers:read" />,
+            children: [{ path: "credits", element: withSuspense(<CreditsPage />) }],
+          },
+          {
+            element: <RequirePermission permission="sales:read" />,
+            children: [{ path: "retours", element: withSuspense(<RefundsPage />) }],
+          },
+          {
+            element: <RequirePermission permission="sales:create" />,
+            children: [{ path: "mon-tableau-de-bord", element: withSuspense(<VendeurDashboardPage />) }],
+          },
+          {
+            element: <RequirePermission permission="reports:read" />,
+            children: [{ path: "comptabilite", element: withSuspense(<ComptaPage />) }],
           },
         ],
       },

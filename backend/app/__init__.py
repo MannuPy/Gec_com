@@ -127,12 +127,34 @@ def register_frontend(app: Flask) -> None:
     (fallback SPA pour le routeur cote client, cf. frontend/src/app/router.tsx),
     sauf si le chemin correspond a un fichier statique existant (JS/CSS/icones).
     """
-    dist_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
+    # Chemin vers le build Vite : priorite a SERVE_FRONTEND_DIST, sinon
+    # fallback relatif au projet (utile si npm run build tourne avant flask).
+    serve_dist = app.config.get("SERVE_FRONTEND_DIST")
+    if serve_dist:
+        dist_dir = os.path.abspath(serve_dist)
+    else:
+        dist_dir = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
+        )
+
+    # N'activer le service des fichiers statiques que si le dossier existe.
+    if not os.path.isdir(dist_dir):
+        return
 
     @app.route("/", defaults={"path": ""})
     @app.route("/<path:path>")
     def serve_spa(path: str):
-        static_file = os.path.join(dist_dir, path)
-        if path and os.path.isfile(static_file):
-            return send_from_directory(dist_dir, path)
+        """Sert les assets statiques du build Vite, ou index.html en fallback.
+
+        Ordre de resolution :
+        1. Fichier statique existant dans dist/ (JS, CSS, images, etc.).
+        2. index.html (fallback SPA pour les routes geres cote client).
+
+        Les routes /api/* et /health ne passent jamais par ce handler car
+        leurs blueprints sont enregistres en premier par Flask.
+        """
+        if path:
+            static_file = os.path.join(dist_dir, path)
+            if os.path.isfile(static_file):
+                return send_from_directory(dist_dir, path)
         return send_from_directory(dist_dir, "index.html")

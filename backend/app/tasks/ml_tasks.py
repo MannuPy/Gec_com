@@ -1,15 +1,4 @@
-"""
-Tâches Celery d'entraînement des modèles ML (cf. 20-MACHINE-LEARNING.md
-§20.7, 21-PIPELINE-ETL.md). Chaque tâche appelle `train(...)` du module
-`app.ml.*` correspondant, dans le contexte applicatif Flask fourni par
-`ContextTask` (cf. `app.celery_app`).
-
-Ces tâches sont également invocables de façon synchrone (hors Celery) via
-l'endpoint `POST /api/v1/analytics/ml/train/<model_type>` (cf. blueprint
-`analytics`), qui appelle directement `train(...)` sans passer par Celery —
-utile lorsque le worker/broker n'est pas disponible (environnement de
-développement sans Redis).
-"""
+"""Taches Celery d\'entrainement des modeles ML."""
 from __future__ import annotations
 
 import logging
@@ -64,8 +53,6 @@ def compute_rfm_segments_task(months: int = 12, n_clusters: int = 4) -> dict:
     return result
 
 
-# Mapping utilisé par l'endpoint POST /analytics/ml/train/<model_type>
-# pour lancer un entraînement synchrone (sans Celery) ou via `.delay()`.
 TRAIN_FUNCTIONS = {
     "DEMAND_FORECAST": train_demand_forecast_task,
     "CREDIT_SCORING": train_credit_scoring_task,

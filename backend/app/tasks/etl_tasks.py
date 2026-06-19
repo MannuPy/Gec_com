@@ -1,18 +1,4 @@
-"""Tâches Celery du pipeline ETL / Feature Store (cf. 21-PIPELINE-ETL.md
-§21.3, §21.6). Chaque tâche délègue à `app.services.etl_service`, dans le
-contexte applicatif Flask fourni par `ContextTask` (cf. `app.celery_app`).
-
-Orchestration (§21.3) :
-- `etl_extract_and_clean` : extraction + nettoyage, quotidienne (02h00) ;
-- `etl_validate`          : validation qualité (§21.4), après l'extraction ;
-- `etl_build_features`    : feature engineering (§21.6), avant les tâches
-  d'entraînement ML qui consomment la Feature Store
-  (`train_credit_scoring_task`, `detect_anomalies_task`, etc.).
-
-Si `etl_validate` échoue (`EtlValidationError`), `etl_build_features` ne
-modifie aucune table `fs_*` et renvoie `{"success": False, ...}` — l'étape
-suivante est ainsi bloquée, conformément à §21.4.
-"""
+"""Taches Celery du pipeline ETL / Feature Store."""
 from __future__ import annotations
 
 import logging

@@ -1,10 +1,6 @@
-"""Schemas marshmallow pour le blueprint `sales` (ventes et clients)."""
+"""Schemas marshmallow pour le blueprint sales (ventes et clients)."""
 from marshmallow import Schema, fields, validate
 
-
-# ---------------------------------------------------------------------------
-# Clients
-# ---------------------------------------------------------------------------
 
 class CustomerSchema(Schema):
     id = fields.String()
@@ -23,10 +19,6 @@ class CustomerWriteSchema(Schema):
     credit_limit = fields.Decimal(load_default="0", places=2, as_string=True, validate=validate.Range(min=0))
 
 
-# ---------------------------------------------------------------------------
-# Echeances de remboursement a credit (RF-26)
-# ---------------------------------------------------------------------------
-
 class CustomerPaymentSchema(Schema):
     id = fields.String()
     customer_id = fields.String()
@@ -44,8 +36,6 @@ class CustomerPaymentSchema(Schema):
 
 
 class CustomerPaymentCreateSchema(Schema):
-    """Creation d'une echeance de remboursement (RF-26)."""
-
     sale_id = fields.String(allow_none=True, load_default=None)
     amount = fields.Decimal(required=True, places=2, as_string=True, validate=validate.Range(min=0.01))
     due_date = fields.Date(required=True)
@@ -53,17 +43,11 @@ class CustomerPaymentCreateSchema(Schema):
 
 
 class CustomerPaymentUpdateSchema(Schema):
-    """Enregistrement d'un reglement / changement de statut d'echeance (RF-26)."""
-
     status = fields.String(
         required=True, validate=validate.OneOf(["PENDING", "PAID", "LATE", "CANCELLED"])
     )
     paid_date = fields.Date(allow_none=True, load_default=None)
 
-
-# ---------------------------------------------------------------------------
-# Ventes
-# ---------------------------------------------------------------------------
 
 class SaleLineCreateSchema(Schema):
     product_id = fields.String(required=True)
@@ -80,31 +64,17 @@ class SaleCreateSchema(Schema):
     )
 
 
-# ---------------------------------------------------------------------------
-# Synchronisation hors-ligne (RF-20, RG-28 a RG-30)
-# ---------------------------------------------------------------------------
-
 class SaleSyncLineSchema(Schema):
-    """Ligne de vente synchronisee : jamais de prix envoye par le client.
-
-    Cf. 18-SECURITE.md : le serveur revalide systematiquement les prix et le
-    stock a la synchronisation, independamment de ce qui a ete calcule hors-
-    ligne par le poste de caisse.
-    """
-
     product_id = fields.String(required=True)
     quantity = fields.Integer(required=True, validate=validate.Range(min=1))
 
 
 class SaleSyncItemSchema(Schema):
-    """Vente saisie hors-ligne, a synchroniser (cf. 26-GESTION-OFFLINE-PWA.md section 26.4)."""
-
     offline_uuid = fields.String(required=True, validate=validate.Length(min=1, max=36))
     branch_id = fields.String(required=True)
     customer_id = fields.String(allow_none=True, load_default=None)
     payment_type = fields.String(load_default="CASH", validate=validate.OneOf(["CASH", "CREDIT"]))
     discount_rate = fields.Integer(load_default=0, validate=validate.Range(min=0, max=100))
-    # Horodatage du poste de caisse au moment de la saisie (RG-28/RG-30)
     created_at_local = fields.DateTime(allow_none=True, load_default=None)
     lines = fields.List(
         fields.Nested(SaleSyncLineSchema), required=True, validate=validate.Length(min=1)
@@ -118,8 +88,6 @@ class SaleSyncBatchSchema(Schema):
 
 
 class SaleSyncResultSchema(Schema):
-    """Resultat de synchronisation pour une vente (cf. 17-API-REST.md, SYNC_CONFLICT)."""
-
     offline_uuid = fields.String()
     status = fields.String()
     sale_id = fields.String(allow_none=True)

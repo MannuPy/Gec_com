@@ -1,5 +1,3 @@
-/** Cf. backend/app/blueprints/sales/schemas.py */
-
 export const PAYMENT_TYPES = ["CASH", "CREDIT"] as const;
 export type PaymentType = (typeof PAYMENT_TYPES)[number];
 
@@ -9,6 +7,7 @@ export const SALE_STATUSES = [
   "AVOIR_EMIS",
   "EN_ATTENTE_SYNC",
   "EN_CONFLIT",
+  "EN_ATTENTE_APPROBATION",
 ] as const;
 export type SaleStatus = (typeof SALE_STATUSES)[number];
 
@@ -75,16 +74,11 @@ export interface SaleListParams {
   per_page?: number;
 }
 
-// ---------------------------------------------------------------------------
-// Synchronisation hors-ligne (RF-20, RG-28 à RG-30)
-// ---------------------------------------------------------------------------
-
 export interface SaleSyncLinePayload {
   product_id: string;
   quantity: number;
 }
 
-/** Vente hors-ligne envoyée à POST /sales/sync. */
 export interface SaleSyncItemPayload {
   offline_uuid: string;
   branch_id: string;
@@ -103,7 +97,6 @@ export const SALE_SYNC_RESULT_STATUSES = [
 ] as const;
 export type SaleSyncResultStatus = (typeof SALE_SYNC_RESULT_STATUSES)[number];
 
-/** Résultat de synchronisation pour une vente (POST /sales/sync). */
 export interface SaleSyncResult {
   offline_uuid: string;
   status: SaleSyncResultStatus | string;

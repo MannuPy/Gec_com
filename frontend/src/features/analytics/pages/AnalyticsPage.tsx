@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Brain, Download, Loader2, RefreshCw } from "lucide-react";
 import {
@@ -81,6 +81,20 @@ const MODEL_LABELS: Record<MlModelType, string> = {
   ABC_XYZ:           "Classification ABC/XYZ",
   RFM_SEGMENTATION:  "Segmentation RFM",
 };
+
+// ── Hook hauteur de graphique responsive ─────────────────────────────────────
+
+function useChartHeight(desktop = 280, mobile = 200) {
+  const [height, setHeight] = useState(() =>
+    typeof window !== "undefined" && window.innerWidth < 640 ? mobile : desktop
+  );
+  useEffect(() => {
+    const fn = () => setHeight(window.innerWidth < 640 ? mobile : desktop);
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, [desktop, mobile]);
+  return height;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -165,6 +179,11 @@ export default function AnalyticsPage() {
   const [riskLevel,  setRiskLevel]  = useState("");
   const [exporting,  setExporting]  = useState(false);
   const [exportError,setExportError]= useState<string | null>(null);
+
+  // Hauteurs de graphiques adaptées au viewport
+  const chartH     = useChartHeight(280, 200);
+  const chartHSm   = useChartHeight(260, 190);
+  const chartHBar  = useChartHeight(300, 220);
 
   // ── Queries ────────────────────────────────────────────────────────────────
 
@@ -340,13 +359,13 @@ export default function AnalyticsPage() {
 
       <div className="card space-y-4">
 
-        {/* ── Navigation par onglets ── */}
-        <div className="flex flex-wrap gap-2">
+        {/* ── Navigation par onglets (scroll horizontal sur mobile) ── */}
+        <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
           {TABS.map((t) => (
             <button
               key={t.id}
               type="button"
-              className={tab === t.id ? "btn-primary" : "btn-secondary"}
+              className={`shrink-0 ${tab === t.id ? "btn-primary" : "btn-secondary"}`}
               onClick={() => setTab(t.id)}
             >
               {t.label}
@@ -424,7 +443,7 @@ export default function AnalyticsPage() {
                 <p className="py-10 text-center text-sm text-muted">Aucune vente sur la période.</p>
               )}
               {salesTrendQuery.data && salesTrendQuery.data.items.length > 0 && (
-                <ResponsiveContainer width="100%" height={280}>
+                <ResponsiveContainer width="100%" height={chartH}>
                   <AreaChart data={salesTrendQuery.data.items} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                     <defs>
                       <linearGradient id="gCA" x1="0" y1="0" x2="0" y2="1">
@@ -465,7 +484,7 @@ export default function AnalyticsPage() {
 
                   {data.branches.length > 1 && (
                     <Section title="Comparaison des sites — CA et marge">
-                      <ResponsiveContainer width="100%" height={250}>
+                      <ResponsiveContainer width="100%" height={chartHSm}>
                         <BarChart
                           data={data.branches.map((b) => ({
                             name:  b.branch_name,
@@ -542,7 +561,7 @@ export default function AnalyticsPage() {
               <div className="space-y-6">
                 {forecastBar.length > 0 && (
                   <Section title="Stock disponible vs seuil minimum vs stock prévu J+7 (Top 12)">
-                    <ResponsiveContainer width="100%" height={300}>
+                    <ResponsiveContainer width="100%" height={chartHBar}>
                       <BarChart data={forecastBar} margin={{ top: 5, right: 20, left: 10, bottom: 60 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                         <XAxis dataKey="name" tick={{ fontSize: 10 }} angle={-30} textAnchor="end" interval={0} />
@@ -621,7 +640,7 @@ export default function AnalyticsPage() {
                   {/* Pie : CA par classe ABC */}
                   <Section title="Part du CA par classe ABC">
                     {abcPieData.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={260}>
+                      <ResponsiveContainer width="100%" height={chartHSm}>
                         <PieChart>
                           <Pie
                             data={abcPieData}
@@ -629,12 +648,12 @@ export default function AnalyticsPage() {
                             nameKey="name"
                             cx="50%" cy="50%"
                             outerRadius={90} innerRadius={45}
-                            label={({ name, percent }) => `${name} — ${(percent * 100).toFixed(1)} %`}
+                            label={({ name, percent }: { name?: string; percent?: number }) => `${name ?? ""} — ${((percent ?? 0) * 100).toFixed(1)} %`}
                             labelLine={false}
                           >
                             {abcPieData.map((e) => <Cell key={e.abc} fill={ABC_COLOR[e.abc] ?? C.muted} />)}
                           </Pie>
-                          <Tooltip formatter={(v: number) => formatCurrency(v)} />
+                          <Tooltip formatter={(v) => formatCurrency(Number(v ?? 0))} />
                           <Legend />
                         </PieChart>
                       </ResponsiveContainer>
@@ -646,12 +665,12 @@ export default function AnalyticsPage() {
                   {/* Bar : produits par classe combinée */}
                   <Section title="Nombre de produits par classe ABC × XYZ">
                     {abcCountData.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={260}>
+                      <ResponsiveContainer width="100%" height={chartHSm}>
                         <BarChart data={abcCountData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                           <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                           <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                          <Tooltip formatter={(v: number) => [formatNumber(v), "Produits"]} />
+                          <Tooltip formatter={(v) => [formatNumber(Number(v ?? 0)), "Produits"]} />
                           <Bar dataKey="count" name="Produits" radius={[4, 4, 0, 0]}>
                             {abcCountData.map((e) => <Cell key={e.name} fill={ABC_COLOR[e.abc] ?? C.muted} />)}
                           </Bar>
@@ -710,7 +729,7 @@ export default function AnalyticsPage() {
                   {/* Scatter : Récence × Fréquence (taille = Montant) */}
                   <Section title="Nuage RFM — Récence vs Fréquence (taille ∝ Montant)">
                     {rfmScatterGroups.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={280}>
+                      <ResponsiveContainer width="100%" height={chartH}>
                         <ScatterChart margin={{ top: 10, right: 20, left: 0, bottom: 30 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                           <XAxis
@@ -743,12 +762,12 @@ export default function AnalyticsPage() {
                   {/* Bar : nombre de clients par segment */}
                   <Section title="Distribution des segments clients">
                     {rfmSegCounts.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={280}>
+                      <ResponsiveContainer width="100%" height={chartH}>
                         <BarChart data={rfmSegCounts} layout="vertical" margin={{ top: 5, right: 20, left: 90, bottom: 5 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                           <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={90} />
-                          <Tooltip formatter={(v: number) => [formatNumber(v), "Clients"]} />
+                          <Tooltip formatter={(v) => [formatNumber(Number(v ?? 0)), "Clients"]} />
                           <Bar dataKey="count" name="Clients" radius={[0, 4, 4, 0]}>
                             {rfmSegCounts.map((e, i) => (
                               <Cell key={e.name} fill={SEG_PALETTE[i % SEG_PALETTE.length]} />
@@ -807,7 +826,7 @@ export default function AnalyticsPage() {
                   {/* Pie : distribution risque */}
                   <Section title="Distribution du risque crédit">
                     {creditPieData.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={260}>
+                      <ResponsiveContainer width="100%" height={chartHSm}>
                         <PieChart>
                           <Pie
                             data={creditPieData}
@@ -815,12 +834,12 @@ export default function AnalyticsPage() {
                             nameKey="name"
                             cx="50%" cy="50%"
                             outerRadius={90} innerRadius={45}
-                            label={({ name, percent }) => `${name} — ${(percent * 100).toFixed(0)} %`}
+                            label={({ name, percent }: { name?: string; percent?: number }) => `${name ?? ""} — ${((percent ?? 0) * 100).toFixed(0)} %`}
                             labelLine={false}
                           >
                             {creditPieData.map((e) => <Cell key={e.key} fill={RISK_COLOR[e.key] ?? C.muted} />)}
                           </Pie>
-                          <Tooltip formatter={(v: number) => [formatNumber(v), "Clients"]} />
+                          <Tooltip formatter={(v) => [formatNumber(Number(v ?? 0)), "Clients"]} />
                           <Legend />
                         </PieChart>
                       </ResponsiveContainer>
@@ -832,12 +851,12 @@ export default function AnalyticsPage() {
                   {/* Bar horizontal : Top 10 scores */}
                   <Section title="Top 10 clients par score crédit">
                     {creditTopBar.length > 0 ? (
-                      <ResponsiveContainer width="100%" height={260}>
+                      <ResponsiveContainer width="100%" height={chartHSm}>
                         <BarChart data={creditTopBar} layout="vertical" margin={{ top: 5, right: 20, left: 90, bottom: 5 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                           <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} />
                           <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={90} />
-                          <Tooltip formatter={(v: number) => [formatNumber(v), "Score"]} />
+                          <Tooltip formatter={(v) => [formatNumber(Number(v ?? 0)), "Score"]} />
                           <ReferenceLine x={70} stroke={C.secondary} strokeDasharray="4 4" />
                           <ReferenceLine x={40} stroke={C.danger}    strokeDasharray="4 4" />
                           <Bar dataKey="score" name="Score crédit" radius={[0, 4, 4, 0]}>
@@ -900,7 +919,7 @@ export default function AnalyticsPage() {
               <div className="space-y-6">
                 <Section title="Score d'anomalie vs taux de remise (chaque point = une vente, taille ∝ montant)">
                   {anomalyScatter.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={280}>
+                    <ResponsiveContainer width="100%" height={chartH}>
                       <ScatterChart margin={{ top: 10, right: 20, left: 0, bottom: 30 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
                         <XAxis

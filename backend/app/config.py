@@ -95,10 +95,13 @@ class BaseConfig:
     DEFAULT_TENANT_SCHEMA = os.environ.get("DEFAULT_TENANT_SCHEMA", "public")
 
     # ---- Dashboard temps reel (22-DASHBOARD-BI.md section 22.2, SSE) ----
-    # Intervalle (secondes) entre deux evenements pousses par
-    # `GET /reports/dashboard/stream`. Le flux se ferme apres
-    # DASHBOARD_STREAM_MAX_EVENTS pour liberer le worker HTTP ; le client
-    # (`useDashboardStream`) se reconnecte automatiquement.
+    # DISABLE_SSE=true  → mode mono-shot (PythonAnywhere/uWSGI synchrone) :
+    #   le endpoint /dashboard/stream renvoie 1 snapshot puis se ferme.
+    #   Le frontend detecte l'event `sse-disabled` et bascule sur polling pur.
+    # DISABLE_SSE=false (defaut) → flux SSE complet (dev / gunicorn gevent).
+    DISABLE_SSE: bool = os.environ.get("DISABLE_SSE", "false").lower() in ("true", "1", "yes")
+
+    # Intervalle (secondes) et nb max d'evenements (mode SSE complet uniquement).
     DASHBOARD_STREAM_INTERVAL_SECONDS = int(
         os.environ.get("DASHBOARD_STREAM_INTERVAL_SECONDS", "5")
     )
@@ -111,6 +114,13 @@ class BaseConfig:
     # `register_frontend`). Laisser vide pour un frontend deploye separement
     # (Vite dev server, Nginx, Vercel/Netlify...).
     SERVE_FRONTEND_DIST = os.environ.get("SERVE_FRONTEND_DIST")
+
+    # ---- Tableau de bord vendeur (RF-VENDEUR-01) ----
+    # Taux de commission applique au CA mensuel du vendeur pour calculer
+    # sa commission estimee (affichage uniquement, non comptabilise).
+    COMMISSION_RATE: float = float(os.environ.get("COMMISSION_RATE", "0.02"))
+    # Objectif mensuel de CA en FCFA utilise pour la barre de progression.
+    VENDEUR_MONTHLY_TARGET: float = float(os.environ.get("VENDEUR_MONTHLY_TARGET", "500000"))
 
 
 class DevConfig(BaseConfig):
@@ -127,12 +137,14 @@ class TestingConfig(BaseConfig):
 
 class ProdConfig(BaseConfig):
     DEBUG = False
-    # Derriere un reverse proxy HTTPS (PythonAnywhere, Nginx...), les URLs
-    # generees (ex. liens dans les PDF/emails) doivent utiliser le schema https.
-    PREFERRED_URL_SCHEME = "https"
+    # Derriere un reverse proxy (uWSGI sur PythonAnywhere), Flask doit
+    # faire confiance aux en-tetes X-Forwarded-For / X-Forwarded-Proto
+    # pour que url_for() genere des URL HTTPS.
+    # Active via ProxyFix dans wsgi.py si necessaire.
+    PROPAGATE_EXCEPTIONS = True
 
 
-CONFIG_BY_NAME = {
+_CONFIG_MAP = {
     "development": DevConfig,
     "testing": TestingConfig,
     "production": ProdConfig,
@@ -140,5 +152,11 @@ CONFIG_BY_NAME = {
 
 
 def get_config(env_name: str | None = None):
-    env_name = env_name or os.environ.get("FLASK_ENV", "development")
-    return CONFIG_BY_NAME.get(env_name, DevConfig)
+    """Retourne la classe de configuration correspondant a l'environnement.
+
+    Ordre de resolution :
+    1. `env_name` si fourni explicitement (ex. create_app("testing")).
+    2. Variable d'environnement `FLASK_ENV` (defaut : "development").
+    """
+    env = env_name or os.environ.get("FLASK_ENV", "development")
+    return _CONFIG_MAP.get(env, DevConfig)

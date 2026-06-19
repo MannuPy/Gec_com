@@ -1,9 +1,4 @@
-"""Routes du blueprint `products` : sites, categories, marques, produits.
-
-Cf. 17-API-REST.md section Products (`GET/POST /products`, `PATCH /products/{id}`,
-`GET/POST /categories`, `GET/POST /brands`) et 18-SECURITE.md (permissions
-`products:read` / `products:write`).
-"""
+"""Routes du blueprint `products` : sites, categories, marques, produits."""
 from flask import jsonify, request
 from sqlalchemy import or_
 
@@ -34,20 +29,12 @@ product_schema = ProductSchema()
 products_schema = ProductSchema(many=True)
 
 
-# ---------------------------------------------------------------------------
-# Sites (lecture seule depuis ce blueprint - gestion complete hors V1)
-# ---------------------------------------------------------------------------
-
 @products_bp.get("/branches")
 @require_permission("products:read", "sales:create", "stock:read")
 def list_branches():
     branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
     return jsonify(branch_schema.dump(branches))
 
-
-# ---------------------------------------------------------------------------
-# Categories
-# ---------------------------------------------------------------------------
 
 @products_bp.get("/categories")
 @require_permission("products:read")
@@ -70,10 +57,6 @@ def create_category():
     return jsonify(category_schema.dump(category)), 201
 
 
-# ---------------------------------------------------------------------------
-# Marques
-# ---------------------------------------------------------------------------
-
 @products_bp.get("/brands")
 @require_permission("products:read")
 def list_brands():
@@ -95,19 +78,15 @@ def create_brand():
     return jsonify(brand_schema.dump(brand)), 201
 
 
-# ---------------------------------------------------------------------------
-# Produits
-# ---------------------------------------------------------------------------
-
 @products_bp.get("/products")
 @require_permission("products:read", "sales:create", "stock:read")
 def list_products():
-    """Liste paginee des produits, avec recherche et filtres (cf. 17-API-REST.md)."""
+    """Liste paginee des produits, avec recherche et filtres."""
     query = Product.query
 
     search = (request.args.get("search") or "").strip()
     if search:
-        like = f"%{search}%"
+        like = "%" + search + "%"
         conditions = [
             Product.name.ilike(like),
             Product.name_moore.ilike(like),
@@ -115,11 +94,9 @@ def list_products():
             Product.barcode.ilike(like),
         ]
 
-        # Recherche phonetique (RF-08) : tolerance aux fautes de frappe et
-        # variations orthographiques, cf. app/utils/phonetic.py.
         search_phonetic = phonetic_code(search)
         if search_phonetic:
-            conditions.append(Product.name_phonetic.ilike(f"%{search_phonetic}%"))
+            conditions.append(Product.name_phonetic.ilike("%" + search_phonetic + "%"))
 
         query = query.filter(or_(*conditions))
 
@@ -137,7 +114,6 @@ def list_products():
     else:
         query = query.filter(Product.is_active.is_(True))
 
-    # Synchronisation incrementale du catalogue en mode hors-ligne (26.7)
     updated_since = parse_updated_since(request.args.get("updated_since"))
     if updated_since is not None:
         query = query.filter(Product.updated_at >= updated_since)

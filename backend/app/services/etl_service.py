@@ -1,30 +1,5 @@
 """
-Service ETL — extraction, validation et feature engineering (§21.6, §21.2-21.4).
-
-Ce module implémente les trois étapes orchestrées par
-`app/tasks/etl_tasks.py` (cf. 21-PIPELINE-ETL.md §21.3) :
-
-1. :func:`extract_and_clean` — extraction des données sources (ventes,
-   lignes de vente, clients, échéances de remboursement RF-26) sur une
-   fenêtre glissante, et nettoyage (valeurs manquantes, doublons) ;
-2. :func:`validate` — contrôle qualité (§21.4) via Great Expectations si
-   disponible, avec repli sur des contrôles pandas équivalents
-   (`HAS_GREAT_EXPECTATIONS`, même logique de cascade que `app/ml/*`). En cas
-   d'échec, :class:`EtlValidationError` est levée et bloque l'étape suivante
-   (§21.4 : "l'étape suivante est bloquée") ;
-3. :func:`build_features` — purge et recalcule les quatre tables de la
-   Feature Store (`fs_daily_sales`, `fs_customer_rfm`,
-   `fs_customer_credit_features`, `fs_transaction_features`), consommées en
-   priorité par `app/ml/*` (avec repli sur leurs requêtes directes /
-   simulations historiques si la Feature Store est vide).
-
-Pour `fs_customer_credit_features`, le `data_source` (`REAL`/`SIMULATED`) est
-déterminé client par client : si l'historique réel des échéances
-(`customer_payments`, RF-26) compte au moins :data:`MIN_PAYMENTS_FOR_REAL_DATA`
-échéances résolues, `taux_retard` et `delai_moyen_remboursement_jours` sont
-calculés à partir de ces données réelles (`REAL`) ; sinon on retombe sur la
-simulation déterministe documentée en §20.6.2 (`SIMULATED`,
-`app.ml.credit_scoring._deterministic_repayment_stats`).
+Service ETL -- extraction, validation et feature engineering (section 21.6).
 """
 from __future__ import annotations
 
@@ -54,46 +29,28 @@ from app.models import (
 
 try:
     import great_expectations as ge
-
     HAS_GREAT_EXPECTATIONS = True
 except ImportError:
     HAS_GREAT_EXPECTATIONS = False
 
 logger = logging.getLogger(__name__)
 
-# Fenêtre d'extraction par défaut (~6 mois, cf. app/ml/demand_forecast.py).
 EXTRACTION_WINDOW_DAYS = 180
-# Fenêtre RFM (§20.4 / fs_customer_rfm).
 RFM_WINDOW_MONTHS = 12
-# Fenêtre glissante de détection d'anomalies (§21.6 : 30 jours).
 ANOMALY_WINDOW_DAYS = 30
-
-# Nombre minimal d'échéances résolues (PAID ou en retard constaté) pour
-# considérer l'historique de remboursement d'un client comme suffisant
-# (data_source=REAL). En deçà, repli sur la simulation déterministe (§20.6.2).
 MIN_PAYMENTS_FOR_REAL_DATA = 3
-# Au-delà de ce délai (jours), une échéance est considérée en retard.
 LATE_THRESHOLD_DAYS = 30
 
 
 class EtlValidationError(Exception):
-    """Échec de la validation qualité (§21.4) — bloque l'étape suivante."""
+    """Echec de la validation qualite (section 21.4) -- bloque l'etape suivante."""
 
 
 # ---------------------------------------------------------------------------
-# 21.2 — Extraction + nettoyage (B1)
+# Extraction + nettoyage
 # ---------------------------------------------------------------------------
 
 def extract_and_clean(days: int = EXTRACTION_WINDOW_DAYS) -> dict[str, pd.DataFrame]:
-    """Extrait et nettoie les données sources (§21.2, sources A1/A4).
-
-    Retourne un dict de DataFrames :
-    - ``sale_lines`` : lignes de vente (+ dimensions vente) sur la fenêtre
-      ``days`` jours, nettoyées (lignes incomplètes/doublons supprimés) ;
-    - ``customers`` : clients (référentiel complet) ;
-    - ``customer_payments`` : échéances de remboursement RF-26 (référentiel
-      complet, utilisé par :func:`_real_repayment_stats`).
-    """
     cutoff = datetime.utcnow() - timedelta(days=days)
 
     rows = (
@@ -140,8 +97,6 @@ def extract_and_clean(days: int = EXTRACTION_WINDOW_DAYS) -> dict[str, pd.DataFr
 
     raw_count = len(df_sales)
     if not df_sales.empty:
-        # Nettoyage (§21.2 B1) : valeurs manquantes sur colonnes critiques,
-        # doublons éventuels (resynchronisation hors-ligne).
         df_sales = df_sales.dropna(subset=["product_id", "branch_id", "quantity"])
         df_sales = df_sales.drop_duplicates(subset=["sale_line_id"])
         df_sales["quantity"] = df_sales["quantity"].astype(int)
@@ -180,28 +135,18 @@ def extract_and_clean(days: int = EXTRACTION_WINDOW_DAYS) -> dict[str, pd.DataFr
     )
 
     logger.info(
-        "etl_extract_and_clean: %d lignes brutes -> %d apres nettoyage "
-        "(%d clients, %d echeances de remboursement)",
-        raw_count,
-        clean_count,
-        len(df_customers),
-        len(df_payments),
+        "etl_extract_and_clean: %d lignes brutes -> %d apres nettoyage (%d clients, %d echeances)",
+        raw_count, clean_count, len(df_customers), len(df_payments),
     )
 
     return {"sale_lines": df_sales, "customers": df_customers, "customer_payments": df_payments}
 
 
 # ---------------------------------------------------------------------------
-# 21.4 — Validation qualité (Great Expectations + repli pandas)
+# Validation qualite
 # ---------------------------------------------------------------------------
 
 def validate(data: dict[str, pd.DataFrame]) -> dict:
-    """Valide la qualité des données extraites (§21.4).
-
-    Lève :class:`EtlValidationError` en cas d'échec — l'étape suivante
-    (``etl_build_features``) est alors bloquée, conformément à §21.4 :
-    "En cas d'échec de validation, l'étape suivante est bloquée".
-    """
     df = data.get("sale_lines", pd.DataFrame())
 
     if df.empty:
@@ -219,21 +164,18 @@ def validate(data: dict[str, pd.DataFrame]) -> dict:
     if not result["success"]:
         logger.warning("etl_validate: validation en echec - %s", result["checks"])
         raise EtlValidationError(
-            f"Validation qualite (§21.4) en echec : {result['checks']}"
+            "Validation qualite (section 21.4) en echec : " + str(result["checks"])
         )
 
     return result
 
 
 def _validate_pandas_fallback(df: pd.DataFrame) -> dict:
-    """Repli pandas — implémente les mêmes règles que la suite Great
-    Expectations de référence (§21.4) lorsque la bibliothèque n'est pas
-    installée."""
     checks: list[dict] = []
 
     for col in ("product_id", "branch_id", "quantity"):
         checks.append(
-            {"expectation": f"not_null_{col}", "success": bool(df[col].notna().all())}
+            {"expectation": "not_null_" + col, "success": bool(df[col].notna().all())}
         )
 
     checks.append(
@@ -265,7 +207,7 @@ def _validate_great_expectations(df: pd.DataFrame) -> dict:
 
         for col in ("product_id", "branch_id", "quantity"):
             res = gdf.expect_column_values_to_not_be_null(col)
-            checks.append({"expectation": f"not_null_{col}", "success": bool(res.success)})
+            checks.append({"expectation": "not_null_" + col, "success": bool(res.success)})
 
         res = gdf.expect_column_values_to_be_between("quantity", min_value=0, max_value=10000)
         checks.append({"expectation": "quantity_between_0_10000", "success": bool(res.success)})
@@ -287,22 +229,16 @@ def _validate_great_expectations(df: pd.DataFrame) -> dict:
             "checks": checks,
             "engine": "GREAT_EXPECTATIONS",
         }
-    except Exception:  # pragma: no cover - GE ne doit jamais bloquer le pipeline lui-meme
-        logger.exception("etl_validate: erreur Great Expectations, repli sur la validation pandas")
+    except Exception:
+        logger.exception("etl_validate: erreur Great Expectations, repli sur pandas")
         return _validate_pandas_fallback(df)
 
 
 # ---------------------------------------------------------------------------
-# 21.6 — Feature engineering (purge + recalcul des tables fs_*)
+# Feature engineering
 # ---------------------------------------------------------------------------
 
 def build_features(days: int = EXTRACTION_WINDOW_DAYS) -> dict:
-    """Exécute le pipeline complet (extraction -> validation -> features) et
-    purge/recalcule les quatre tables de la Feature Store (§21.6).
-
-    Lève :class:`EtlValidationError` si la validation échoue (§21.4) : aucune
-    table ``fs_*`` n'est alors modifiée.
-    """
     data = extract_and_clean(days=days)
     validation = validate(data)
 
@@ -319,9 +255,6 @@ def build_features(days: int = EXTRACTION_WINDOW_DAYS) -> dict:
 
 
 def _build_fs_daily_sales(df: pd.DataFrame) -> dict:
-    """Purge et recalcule `fs_daily_sales` : ventes agrégées par jour /
-    produit / boutique + features calendaires (alimente
-    `app/ml/demand_forecast.py`)."""
     FsDailySales.query.delete()
 
     if df.empty:
@@ -360,8 +293,6 @@ def _build_fs_daily_sales(df: pd.DataFrame) -> dict:
 
 
 def _build_fs_customer_rfm(months: int = RFM_WINDOW_MONTHS) -> dict:
-    """Purge et recalcule `fs_customer_rfm` : récence/fréquence/montant par
-    client sur ``months`` mois (alimente `app/ml/rfm_segmentation.py`)."""
     FsCustomerRfm.query.delete()
 
     cutoff = datetime.utcnow() - timedelta(days=months * 30)
@@ -410,21 +341,7 @@ def _build_fs_customer_rfm(months: int = RFM_WINDOW_MONTHS) -> dict:
     return {"rows": len(entries)}
 
 
-def _real_repayment_stats(customer_id: str) -> tuple[float, float] | None:
-    """Calcule ``(taux_retard, delai_moyen_remboursement_jours)`` à partir de
-    l'historique réel des échéances de remboursement (`customer_payments`,
-    RF-26).
-
-    Retourne ``None`` si l'historique est insuffisant
-    (< :data:`MIN_PAYMENTS_FOR_REAL_DATA` échéances résolues), pour repli sur
-    la simulation déterministe (§20.6.2,
-    `app.ml.credit_scoring._deterministic_repayment_stats`).
-
-    Une échéance est dite "résolue" si elle a été réglée (`PAID`) ou si sa
-    date d'échéance est dans le passé (impayé constaté). Elle est considérée
-    en retard si le règlement (ou la situation actuelle, pour un impayé) a
-    lieu plus de :data:`LATE_THRESHOLD_DAYS` jours après l'échéance.
-    """
+def _real_repayment_stats(customer_id: str):
     payments = (
         CustomerPayment.query.filter_by(customer_id=customer_id)
         .filter(CustomerPayment.status != CustomerPaymentStatus.CANCELLED.value)
@@ -454,14 +371,6 @@ def _real_repayment_stats(customer_id: str) -> tuple[float, float] | None:
 
 
 def _build_fs_customer_credit_features() -> dict:
-    """Purge et recalcule `fs_customer_credit_features` (RF-26, §20.3.2).
-
-    Pour chaque client ayant un historique d'achats à crédit, `taux_retard`
-    et `delai_moyen_remboursement_jours` sont issus en priorité de
-    l'historique réel des règlements (`data_source=REAL`) ; à défaut
-    d'historique suffisant, on retombe sur la simulation déterministe
-    documentée en §20.6.2 (`data_source=SIMULATED`).
-    """
     FsCustomerCreditFeatures.query.delete()
 
     customers = Customer.query.all()
@@ -519,9 +428,6 @@ def _build_fs_customer_credit_features() -> dict:
 
 
 def _build_fs_transaction_features(days: int = ANOMALY_WINDOW_DAYS) -> dict:
-    """Purge et recalcule `fs_transaction_features` : features de détection
-    d'anomalies sur une fenêtre glissante de ``days`` jours (alimente
-    `app/ml/anomaly_detection.py`)."""
     FsTransactionFeatures.query.delete()
 
     cutoff = datetime.utcnow() - timedelta(days=days)
@@ -568,12 +474,13 @@ def _build_fs_transaction_features(days: int = ANOMALY_WINDOW_DAYS) -> dict:
                 cashier_id=r["cashier_id"],
                 product_id=r["product_id"],
                 montant_total=float(r["montant_total"]),
-                quantity=int(r["quantity"]),
+                remise_taux=int(r["remise_taux"]),
+                heure_vente=int(r["heure_vente"]),
                 ecart_vs_moyenne_produit=float(r["ecart_vs_moyenne_produit"]),
                 ecart_vs_moyenne_vendeur=float(r["ecart_vs_moyenne_vendeur"]),
                 computed_at=now,
             )
         )
     db.session.bulk_save_objects(entries)
-    db.session.commit()
-    return len(entries)
+    db.session.flush()
+    return {"rows": len(entries)}

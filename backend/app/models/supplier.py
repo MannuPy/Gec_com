@@ -1,9 +1,4 @@
-"""
-Modèles fournisseurs et réceptions de marchandises.
-
-Cf. 12-MCD.md (FOURNISSEUR, RECEPTION, LIGNE_RECEPTION) — RF-11, RG-13.
-Toute réception alimente le stock du **dépôt central** uniquement.
-"""
+"""Modeles fournisseurs et receptions de marchandises."""
 import enum
 
 from app.extensions import db
@@ -27,8 +22,6 @@ class ReceptionStatus(str, enum.Enum):
 
 
 class SupplierReception(db.Model, UUIDPrimaryKeyMixin, TimestampMixin):
-    """Réception de marchandises au dépôt central (RF-11)."""
-
     __tablename__ = "supplier_receptions"
 
     reference = db.Column(db.String(32), unique=True, nullable=False)

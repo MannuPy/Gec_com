@@ -1,25 +1,5 @@
 """
-Score de credit client (cf. 20-MACHINE-LEARNING.md section 20.3). Tache Celery
-nocturne (`train_credit_scoring_task`).
-
-Variables (section 20.3.2) : nb_achats_credit_total, montant_moyen_achat,
-delai_moyen_remboursement_jours, taux_retard, anciennete_client_mois,
-frequence_achat_mensuelle, solde_du_actuel, type_client.
-
-**Limite documentee (section 20.6.2)** : le schema V1 ne comporte pas de table de
-suivi des remboursements. `taux_retard` et `delai_moyen_remboursement_jours`
-sont donc derives de facon **deterministe** (loi Beta parametree par le hash
-de `customer.id`) afin de produire un jeu d'entrainement reproductible en
-attendant l'implementation d'un module de suivi des reglements. Ceci est
-consigne dans `ml_models.metrics_json.note`.
-
-Cible `bon_payeur` = 1 si `taux_retard` < 20%.
-
-Algorithmes : RandomForest (principal) + regression logistique
-(reference interpretable), validation croisee stratifiee (StratifiedKFold).
-Repli `RULE_BASED_SCORING` si l'echantillon est trop petit ou si scikit-learn
-est indisponible.
-
+Score de credit client (cf. 20-MACHINE-LEARNING.md section 20.3).
 Score final 0-100, niveau de risque : 0-40 ELEVE, 41-70 MOYEN, 71-100 FAIBLE.
 """
 from __future__ import annotations
@@ -39,7 +19,6 @@ try:
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import StratifiedKFold, cross_val_predict, cross_val_score
-
     HAS_SKLEARN = True
 except ImportError:
     HAS_SKLEARN = False
@@ -52,29 +31,15 @@ TAUX_RETARD_SEUIL = 0.20
 
 
 def _deterministic_repayment_stats(customer_id: str) -> tuple[float, float]:
-    """Derive (taux_retard, delai_moyen_remboursement_jours) de facon
-    deterministe a partir de `customer_id` (cf. limite section 20.6.2)."""
     digest = hashlib.sha256(customer_id.encode("utf-8")).digest()
     seed = int.from_bytes(digest[:4], "big")
     rng = np.random.RandomState(seed)
-
-    taux_retard = float(rng.beta(2, 5))  # majoritairement < 0.3, queue vers 1.0
+    taux_retard = float(rng.beta(2, 5))
     delai = float(np.clip(taux_retard * 90 + rng.normal(0, 5), 0, 120))
     return round(taux_retard, 4), round(delai, 1)
 
 
 def _load_customer_features_from_feature_store() -> pd.DataFrame | None:
-    """Charge les features de scoring credit depuis la Feature Store
-    (`fs_customer_credit_features`, cf. 21-PIPELINE-ETL.md section 21.6) si elle a
-    ete alimentee par le pipeline ETL (`etl_build_features`).
-
-    Chaque ligne porte un indicateur `data_source` (REAL/SIMULATED, RF-26) :
-    REAL lorsque l'historique `customer_payments` du client comporte assez
-    d'echeances resolues, SIMULATED en repli deterministe (section 20.6.2).
-
-    Retourne `None` si la table est vide, pour repli sur le calcul direct
-    (`_load_customer_features_direct`).
-    """
     rows = FsCustomerCreditFeatures.query.all()
     if not rows:
         return None
@@ -101,23 +66,18 @@ def _load_customer_features_from_feature_store() -> pd.DataFrame | None:
 
 
 def _load_customer_features_direct() -> pd.DataFrame:
-    """Calcule les features de scoring credit directement depuis les ventes
-    (repli si la Feature Store n'a pas encore ete alimentee). `taux_retard`
-    et `delai_moyen_remboursement_jours` sont derives de facon deterministe
-    (section 20.6.2) - `data_source = SIMULATED`."""
     customers = Customer.query.all()
     now = datetime.utcnow()
 
     rows = []
     for customer in customers:
-        credit_sales = [
-            sale
-            for sale in Sale.query.filter_by(
+        credit_sales = (
+            Sale.query.filter_by(
                 customer_id=customer.id,
                 payment_type=PaymentType.CREDIT.value,
                 status=SaleStatus.VALIDEE.value,
             ).all()
-        ]
+        )
         if not credit_sales:
             continue
 
@@ -149,9 +109,6 @@ def _load_customer_features_direct() -> pd.DataFrame:
 
 
 def _load_customer_features() -> pd.DataFrame:
-    """Charge les features de scoring credit (RF-26) : Feature Store en
-    priorite (`fs_customer_credit_features`, alimentee par `etl_build_features`),
-    repli sur le calcul direct si elle est vide."""
     fs_df = _load_customer_features_from_feature_store()
     if fs_df is not None:
         return fs_df
@@ -189,7 +146,6 @@ def _score_ml(df: pd.DataFrame) -> tuple[np.ndarray, dict, str]:
     rf = RandomForestClassifier(n_estimators=200, random_state=42, max_depth=6)
     logreg = LogisticRegression(max_iter=1000)
 
-    rf_proba = cross_val_predict(rf, X, y, cv=skf, method="predict_proba")[:, 1]
     rf_acc = cross_val_score(rf, X, y, cv=skf, scoring="accuracy").mean()
     logreg_acc = cross_val_score(logreg, X, y, cv=skf, scoring="accuracy").mean()
 
@@ -207,8 +163,6 @@ def _score_ml(df: pd.DataFrame) -> tuple[np.ndarray, dict, str]:
 
 
 def _score_rule_based(df: pd.DataFrame) -> tuple[np.ndarray, dict, str]:
-    # Score decroissant avec le taux de retard et le delai moyen,
-    # pondere par la frequence d'achat (fidelite).
     scores = (
         (1 - df["taux_retard"]) * 70
         + np.clip(1 - df["delai_moyen_remboursement_jours"] / 90, 0, 1) * 20
@@ -240,7 +194,12 @@ def train() -> dict:
         return {"model_id": model.id, "version": model.version, "metrics": metrics, "n_customers": 0}
 
     n_classes = df["bon_payeur"].nunique()
-    use_ml = HAS_SKLEARN and len(df) >= MIN_SAMPLES_FOR_ML and n_classes == 2 and min(np.bincount(df["bon_payeur"])) >= 2
+    use_ml = (
+        HAS_SKLEARN
+        and len(df) >= MIN_SAMPLES_FOR_ML
+        and n_classes == 2
+        and min(np.bincount(df["bon_payeur"])) >= 2
+    )
 
     if use_ml:
         scores, metrics, algorithm = _score_ml(df)
@@ -252,8 +211,8 @@ def train() -> dict:
     metrics["n_data_source_simulated"] = float(len(df) - n_real)
     metrics["note"] = (
         "taux_retard et delai_moyen_remboursement_jours : REAL si historique "
-        "customer_payments suffisant (RF-26), sinon derives de facon "
-        "deterministe (hash customer.id) - cf. 20-MACHINE-LEARNING.md section 20.6.2"
+        "customer_payments suffisant, sinon derives de facon deterministe "
+        "(hash customer.id) - cf. 20-MACHINE-LEARNING.md section 20.6.2"
     )
 
     with MLflowRun(MODEL_TYPE) as run:
