@@ -530,3 +530,119 @@ def compta_summary():
         "evolution_journaliere": evolution,
         "journal": journal_entries,
     })
+
+
+@reports_bp.route("/branches/compare", methods=["GET"])
+@require_permission("reports:read")
+def branches_compare():
+    """
+    Tableau de bord comparatif inter-succursales (Feature C).
+    Query params: date_debut (YYYY-MM-DD), date_fin (YYYY-MM-DD)
+    Returns: periode, kpis[], radar_data[], evolution[], branch_names[]
+    """
+    date_debut_str = request.args.get("date_debut")
+    date_fin_str = request.args.get("date_fin")
+
+    today = datetime.utcnow().date()
+    date_fin = datetime.strptime(date_fin_str, "%Y-%m-%d").date() if date_fin_str else today
+    date_debut = datetime.strptime(date_debut_str, "%Y-%m-%d").date() if date_debut_str else date_fin.replace(day=1)
+
+    debut_dt = datetime.combine(date_debut, time.min)
+    fin_dt = datetime.combine(date_fin, datetime.max.time())
+
+    branches = Branch.query.filter_by(is_active=True).order_by(Branch.name).all()
+    branch_names = [b.name for b in branches]
+
+    kpis = []
+    for branch in branches:
+        sales = (
+            Sale.query
+            .filter(
+                Sale.branch_id == branch.id,
+                Sale.status == SaleStatus.VALIDEE.value,
+                Sale.created_at >= debut_dt,
+                Sale.created_at <= fin_dt,
+            )
+            .all()
+        )
+        ca = sum(float(s.total) for s in sales)
+        nb_ventes = len(sales)
+        panier_moyen = ca / nb_ventes if nb_ventes else 0.0
+
+        cost = sum(
+            float(sl.quantity) * float(sl.product.purchase_price or 0)
+            for s in sales
+            for sl in s.lines
+        )
+        marge_brute = ca - cost
+        marge_pct = (marge_brute / ca * 100) if ca else 0.0
+
+        client_ids = {s.customer_id for s in sales if s.customer_id}
+        nb_clients_actifs = len(client_ids)
+
+        period_days = max(1, (date_fin - date_debut).days + 1)
+        top_prods = top_products_for_period(branch_id=str(branch.id), days=period_days, limit=1)
+        top_product = top_prods[0]["product_name"] if top_prods else "—"
+
+        kpis.append({
+            "branch_id": str(branch.id),
+            "branch_name": branch.name,
+            "is_depot": branch.is_depot,
+            "ca": round(ca, 2),
+            "nb_ventes": nb_ventes,
+            "panier_moyen": round(panier_moyen, 2),
+            "marge_brute": round(marge_brute, 2),
+            "marge_pct": round(marge_pct, 1),
+            "nb_clients_actifs": nb_clients_actifs,
+            "top_product": top_product,
+        })
+
+    # Radar: normalise chaque métrique 0-100
+    metrics = ["ca", "nb_ventes", "panier_moyen", "marge_pct", "nb_clients_actifs"]
+    metric_labels = {
+        "ca": "CA",
+        "nb_ventes": "Nb ventes",
+        "panier_moyen": "Panier moyen",
+        "marge_pct": "Marge %",
+        "nb_clients_actifs": "Clients actifs",
+    }
+    radar_data = []
+    for metric in metrics:
+        maxima = max((k[metric] for k in kpis), default=1) or 1
+        row = {"metric": metric_labels[metric]}
+        for k in kpis:
+            row[k["branch_name"]] = round(k[metric] / maxima * 100, 1)
+        radar_data.append(row)
+
+    # Evolution mensuelle CA par succursale
+    evolution_map: dict = {}
+    for branch in branches:
+        monthly = (
+            db.session.query(
+                func.date_format(Sale.created_at, "%Y-%m").label("mois"),
+                func.sum(Sale.total).label("ca"),
+            )
+            .filter(
+                Sale.branch_id == branch.id,
+                Sale.status == SaleStatus.VALIDEE.value,
+                Sale.created_at >= debut_dt,
+                Sale.created_at <= fin_dt,
+            )
+            .group_by("mois")
+            .order_by("mois")
+            .all()
+        )
+        for row in monthly:
+            if row.mois not in evolution_map:
+                evolution_map[row.mois] = {"mois": row.mois}
+            evolution_map[row.mois][branch.name] = round(float(row.ca or 0), 2)
+
+    evolution = sorted(evolution_map.values(), key=lambda x: x["mois"])
+
+    return jsonify({
+        "periode": {"debut": date_debut.isoformat(), "fin": date_fin.isoformat()},
+        "kpis": kpis,
+        "radar_data": radar_data,
+        "evolution": evolution,
+        "branch_names": branch_names,
+    })
