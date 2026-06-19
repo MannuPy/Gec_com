@@ -1,0 +1,1 @@
+function e(t){const r=typeof t=="string"?Number(t):t;return Number.isNaN(r)?"-":`${new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0}).format(r)} FCFA`}function m(t){return new Intl.NumberFormat("fr-FR").format(t)}function n(t){return new Intl.DateTimeFormat("fr-FR",{dateStyle:"medium",timeStyle:"short"}).format(new Date(t))}export{e as a,m as b,n as f};

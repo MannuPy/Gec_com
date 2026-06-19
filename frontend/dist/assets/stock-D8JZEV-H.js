@@ -1,1 +1,0 @@
-import{n as e}from"./index-CPjVD0E4.js";const o={list:(t={})=>e.get("/stock",{params:t}).then(s=>s.data),movements:(t={})=>e.get("/stock/movements",{params:t}).then(s=>s.data),adjust:t=>e.post("/stock/adjustments",t).then(s=>s.data)};export{o as s};
