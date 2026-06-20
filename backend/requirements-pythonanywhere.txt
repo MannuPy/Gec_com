@@ -1,0 +1,46 @@
+# Dependances PythonAnywhere (subset de requirements.txt).
+# Prophet, XGBoost et MLflow sont exclus : ils necessitent un compilateur C++
+# ou des ressources systeme non disponibles sur PythonAnywhere free/hacker tier.
+# Les modules ML ont des replis automatiques (fallback) quand ces packages
+# sont absents : Seasonal Naive (demande), Z-score (anomalies), etc.
+#
+# Installation :
+#   pip install -r requirements-pythonanywhere.txt --break-system-packages
+#
+# Pour verifier quels packages ML sont actifs :
+#   python -c "import sklearn; print('sklearn OK')"
+#   python -c "import pandas; print('pandas OK')"
+
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.7
+Flask-JWT-Extended==4.6.0
+Flask-Cors==4.0.1
+flask-marshmallow==1.2.1
+marshmallow-sqlalchemy==1.0.0
+marshmallow==3.21.3
+
+# MySQL pour PythonAnywhere
+PyMySQL==1.1.1
+
+python-dotenv==1.0.1
+bcrypt==4.1.3
+gunicorn==22.0.0
+
+# --- ML / Analyse de donnees ---
+# Disponibles en wheels precompiles sur PythonAnywhere
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.5.1
+joblib==1.4.2
+
+# --- Documents / Export ---
+reportlab==4.2.2
+openpyxl==3.1.5
+
+# --- NOTE : packages EXCLUS de PythonAnywhere ---
+# prophet        : necessite pystan + compilateur C++ -> echec garanti
+# xgboost        : wheel parfois indisponible
+# mlflow         : dependances lourdes (SQLAlchemy 2, alembic, etc.)
+# celery         : pas de worker possible -> stub integre dans celery_app.py
+# redis          : pas de broker disponible
