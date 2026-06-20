@@ -35,7 +35,7 @@ export interface VendeurTopProduit {
   name: string;
   sku: string;
   qte_vendue: number;
-  ca: string;
+  ca: number;
 }
 
 export interface VendeurDerniereVente {
