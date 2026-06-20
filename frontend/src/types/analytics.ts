@@ -203,3 +203,57 @@ export interface AnalyticsItemsResponse<T> {
   items: T[];
   total?: number;
 }
+
+// ---------------------------------------------------------------------------
+// Feature E — Analyse de cohortes clients
+// ---------------------------------------------------------------------------
+
+export interface CohortRetentionPoint {
+  month: number;
+  month_label: string;
+  count: number;
+  rate: number;
+}
+
+export interface Cohort {
+  cohort: string;
+  size: number;
+  retention: CohortRetentionPoint[];
+}
+
+export interface CohortAnalysis {
+  cohorts: Cohort[];
+  max_months: number;
+}
+
+// ---------------------------------------------------------------------------
+// Feature F — Customer Lifetime Value (CLV)
+// ---------------------------------------------------------------------------
+
+export interface ClvItem {
+  customer_id: string;
+  name: string;
+  customer_type: string;
+  nb_commandes: number;
+  ca_total: number;
+  panier_moyen: number;
+  premier_achat: string | null;
+  dernier_achat: string | null;
+  duree_mois: number;
+  frequence_mensuelle: number;
+  clv_estime: number;
+  duree_vie_estimee_mois: number;
+}
+
+export interface ClvStats {
+  clv_moyen: number;
+  clv_median: number;
+  clv_max: number;
+  clv_min: number;
+}
+
+export interface ClvResponse {
+  items: ClvItem[];
+  count: number;
+  stats: ClvStats;
+}

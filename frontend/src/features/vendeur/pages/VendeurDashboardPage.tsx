@@ -327,11 +327,11 @@ export default function VendeurDashboardPage() {
                 />
                 <Tooltip
                   formatter={(_v, _name, p) => [
-                    fmt((p.payload as VendeurTopProduit).total_ca),
+                    fmt((p.payload as VendeurTopProduit).ca as number),
                     "CA",
                   ]}
                 />
-                <Bar dataKey="total_ca" fill="#10B981" radius={[0, 4, 4, 0]} />
+                <Bar dataKey="ca" fill="#10B981" radius={[0, 4, 4, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
