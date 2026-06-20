@@ -56,4 +56,4 @@ class StockAdjustmentSchema(Schema):
         required=True,
         validate=validate.NoneOf([0], error="La quantité d'ajustement ne peut pas être nulle."),
     )
-    comment = fields.String
+    comment = fields.String(required=True, validate=validate.Length(min=3, max=255))
