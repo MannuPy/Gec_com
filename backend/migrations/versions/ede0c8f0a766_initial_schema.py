@@ -332,4 +332,14 @@ def downgrade():
 
     op.drop_table('products')
     with op.batch_alter_table('token_blocklist', schema=None) as batch_op:
-        batch_op.
+        batch_op.drop_index(batch_op.f('ix_token_blocklist_jti'))
+
+    op.drop_table('token_blocklist')
+    op.drop_table('suppliers')
+    op.drop_table('customers')
+    op.drop_table('categories')
+    op.drop_table('brands')
+    op.drop_table('branches')
+    op.drop_table('permissions')
+    op.drop_table('roles')
+    # ### end Alembic commands ###

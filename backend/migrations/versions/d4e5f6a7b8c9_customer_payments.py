@@ -53,4 +53,5 @@ def downgrade():
     with op.batch_alter_table('customer_payments', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_customer_payments_customer_id'))
 
-    op.drop_table('
+    op.drop_table('customer_payments')
+    # ### end Alembic commands ###

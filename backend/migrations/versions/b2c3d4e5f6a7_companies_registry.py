@@ -86,4 +86,6 @@ def downgrade():
     schema = "public" if _is_postgres() else None
 
     op.drop_table('user_index', schema=schema)
-    op.drop_index(op.f('ix_companies_schema_name'
+    op.drop_index(op.f('ix_companies_schema_name', table_name='companies'))
+    op.drop_table('companies')
+    # ### end Alembic commands ###
