@@ -1,179 +1,168 @@
-# 22. Dashboard BI / Tableau de bord décisionnel
+# 22. Dashboard BI — Tableaux de bord décisionnels
 
-## 22.1 Objectifs du tableau de bord
+> **Dernière mise à jour :** 19 juin 2026 — reflète le code réel implémenté.
 
-- Donner à l'administrateur une **vue temps réel** de l'activité (ventes, stock, marges) consolidée et par boutique.
-- Afficher les **alertes IA** (ruptures prévues, anomalies, clients à risque) de façon actionnable.
-- Permettre l'**export Excel / PDF** des rapports pour archivage / présentation (RF-29).
+## 22.1 Vue d'ensemble
 
-## 22.2 Architecture temps réel (SSE + polling de repli)
+GesCom-BF expose **4 tableaux de bord** distincts :
 
-```mermaid
-flowchart LR
-    A[Frontend React\nuseDashboardStream] -->|1. Snapshot initial\nGET /reports/dashboard/realtime| E[(PostgreSQL via Flask)]
-    A -->|2. Flux continu\nGET /reports/dashboard/stream\nSSE + Authorization header| C[API Flask\nBlueprint reports]
-    C -->|événements JSON| A
-    A -->|3. Repli polling\nsi SSE indisponible| E
+| Dashboard | Audience | URL Frontend | Endpoints Backend |
+|---|---|---|---|
+| Tableau de bord principal | ADMIN | `/` (DashboardPage) | `GET /reports/dashboard` + `/realtime` |
+| Analytique avancé | ADMIN | `/analytique` (AnalyticsPage) | `GET /analytics/*` |
+| Performance vendeur | VENDEUR | `/mon-tableau-de-bord` (VendeurDashboardPage) | `GET /reports/vendeur/dashboard` |
+| Comparatif succursales | ADMIN | `/comparatif` (BranchComparePage) | `GET /reports/branches/compare` |
+
+## 22.2 Dashboard principal — Données du jour
+
+### Endpoint statique (indicateurs du jour)
+
+`GET /api/v1/reports/dashboard`
+
+```json
+{
+  "sales_today_total": "2450000",
+  "sales_today_count": 18,
+  "average_basket": "136111",
+  "low_stock_count": 7,
+  "top_products_today": [
+    { "product_id": "uuid", "name": "Ciment 50kg", "sku": "CIM-50", "quantity_sold": 24 }
+  ]
+}
 ```
 
-La décision technique d'utiliser **Server-Sent Events (SSE)** plutôt que WebSocket répond à deux contraintes projet :
+### Endpoint temps réel (KPIs + alertes IA + ML)
 
-- L'en-tête `Authorization: Bearer <token>` (JWT, RG-36) **ne peut pas être envoyé par l'API `EventSource`** du navigateur, qui ne supporte pas les en-têtes personnalisés. Le flux SSE est donc consommé via `fetch()` + `ReadableStream` avec l'en-tête d'autorisation.
-- PythonAnywhere (uWSGI synchrone) ne supporte pas le streaming long. Le backend détecte `DISABLE_SSE=true` et émet un unique snapshot avant de fermer la connexion ; le frontend détecte l'événement `sse-disabled` et bascule automatiquement sur le polling pur.
+`GET /api/v1/reports/dashboard/realtime`
 
-### 22.2.1 Endpoints SSE / temps réel
-
-| Endpoint | Méthode | Description |
-|---|---|---|
-| `GET /reports/dashboard/realtime` | REST classique | Snapshot instantané des KPIs (charge initiale + polling de repli) |
-| `GET /reports/dashboard/stream` | SSE (`text/event-stream`) | Flux continu d'événements JSON, 1 événement toutes les `DASHBOARD_STREAM_INTERVAL_SECONDS` secondes (défaut : 5 s), max `DASHBOARD_STREAM_MAX_EVENTS` (défaut : 60) |
-
-### 22.2.2 Format des événements SSE
-
-```
-event: dashboard
-data: {"sales_today_total":"127500.00","sales_today_count":12,"average_basket":"10625.00","low_stock_count":3,"top_products_today":[...]}
-
-event: sse-disabled
-data: {}
-```
-
-L'événement `sse-disabled` signale le mode mono-shot (PythonAnywhere). Le client bascule ensuite sur le polling.
-
-## 22.3 Implémentation frontend (`useDashboardStream`)
-
-Le hook `frontend/src/features/dashboard/hooks/useDashboardStream.ts` implémente la stratégie SSE + repli polling :
-
-```
-Séquence de démarrage (par effet React)
-1. Snapshot immédiat  →  reportsApi.realtime()           → mise à jour de l'état
-2. connectStream()    →  connexion SSE (fetch + ReadableStream)
-3. poll()             →  boucle polling de fond (active uniquement si isLiveRef = false)
-```
-
-### 22.3.1 Correction du bug React 18 Strict Mode (closures locales)
-
-En mode `StrictMode`, React monte les effets **deux fois de suite** (mount → unmount → mount) pour détecter les effets de bord. L'utilisation d'un `useRef` comme variable de contrôle de boucle créait une condition de concurrence :
-
-| Approche (incorrecte) | Comportement |
-|---|---|
-| `const activeRef = useRef(false)` | La référence est partagée entre les deux invocations. La première invocation est nettoyée (`ref.current = false`), puis la seconde l'écrase avec `true`. Les boucles async de la **première** invocation voient `true` et **continuent** — deux connexions SSE concurrentes. |
-
-**Correction appliquée** : variable de fermeture (*closure*) **locale** à chaque invocation :
-
-```typescript
-useEffect(() => {
-  let isActive = true;   // locale à cette invocation — indépendante des autres
-
-  return () => {
-    isActive = false;    // n'affecte que cette invocation, pas la suivante
-    abortController?.abort();
-  };
-}, [accessToken, branchId]);
-```
-
-### 22.3.2 Proxy Vite SSE (`timeout: 0`)
-
-Sans configuration explicite, le proxy HTTP de Vite ferme les connexions SSE après ~2 minutes, ce qui provoque une boucle de reconnexions rapides et des flux concurrents. Correction dans `frontend/vite.config.ts` :
-
-```typescript
-proxy: {
-  "/api": {
-    target: process.env.VITE_API_PROXY_TARGET || "http://localhost:5000",
-    changeOrigin: true,
-    timeout: 0,   // désactive le timeout — requis pour les flux SSE longs
+```json
+{
+  "generated_at": "2024-06-15T14:32:00",
+  "kpis": {
+    "ca_jour": "2450000", "ca_mois": "48200000",
+    "marge_pct": 18.5, "panier_moyen": "136111"
   },
-},
+  "alerts": [
+    { "type": "RUPTURE_STOCK", "severity": "CRITICAL", "message": "...", "entity_id": "..." },
+    { "type": "ANOMALIE",      "severity": "WARNING",  "message": "...", "entity_id": "..." },
+    { "type": "CREDIT_RISK",   "severity": "WARNING",  "message": "...", "entity_id": "..." }
+  ],
+  "abc_xyz": [...],
+  "rfm_segments": [...]
+}
 ```
 
-## 22.4 Sections du tableau de bord
+## 22.3 Architecture SSE / Polling (RF-24)
 
-| Section | Contenu | Source |
-|---|---|---|
-| **KPIs globaux** | CA du jour, nombre de ventes, panier moyen, produits en stock faible | `GET /reports/dashboard/summary` |
-| **Top produits du jour** | 5 produits les plus vendus (quantité) | `top_products_today` dans la réponse summary |
-| **Alertes stock** | Produits dont `stock.quantity ≤ product.min_stock_threshold` | Join SQLAlchemy `Stock ⟕ Product` |
-| **Alertes anomalies** | Transactions signalées | `predictions` (type ANOMALIE), flux SSE |
-| **Crédit clients** | Clients avec `credit_balance > 0` | `GET /sales/credits` |
-| **ABC/XYZ** | Répartition des produits par classe | `GET /analytics/abc-xyz` |
+### Flux SSE (mode normal)
 
-## 22.5 Schéma de la réponse (`DashboardSummary`)
+`GET /api/v1/reports/dashboard/stream`
 
-```yaml
-/reports/dashboard/summary:
-  get:
-    summary: Snapshot KPIs du tableau de bord
-    responses:
-      '200':
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                sales_today_total:
-                  type: string
-                  description: CA du jour (Decimal en chaîne, FCFA)
-                sales_today_count:
-                  type: integer
-                  description: Nombre de ventes du jour
-                average_basket:
-                  type: string
-                  description: Panier moyen du jour (Decimal en chaîne)
-                low_stock_count:
-                  type: integer
-                  description: Nombre de références sous min_stock_threshold
-                top_products_today:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      product_id: { type: string, format: uuid }
-                      name: { type: string }
-                      sku: { type: string }
-                      quantity_sold: { type: integer }
+- Connexion via `fetch()` (pas `EventSource`) pour envoyer le header `Authorization: Bearer <token>`
+- Chaque 30 secondes : snapshot `compute_dashboard_realtime()` → événement SSE `data: {json}`
+- Reconnexion automatique après 5 secondes si connexion fermée
+
+### Mode PythonAnywhere (DISABLE_SSE=true)
+
+- Le serveur envoie : `event: sse-disabled\ndata: {}\n\n` puis un snapshot unique
+- Le frontend détecte `sse-disabled` → bascule sur polling `GET /realtime` toutes les 15 secondes
+- Compatible environnement mono-worker PythonAnywhere
+
+### Protection React 18 Strict Mode
+
+```typescript
+// Variable de closure LOCALE (pas useRef) pour éviter les doubles connexions :
+let isActive = true;   // propre à chaque invocation de useEffect
 ```
 
-## 22.6 Maquette du dashboard
+## 22.4 Dashboard vendeur — Performance individuelle
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│ GesCom-BF        [Entreprise X]      🔔 3 alertes    👤 Admin     │
-├─────────────────────────────────────────────────────────────────┤
-│ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐     │
-│ │ CA jour    │ │ Nb ventes  │ │ Panier moy │ │ Stock bas  │     │
-│ │ 127 500 F  │ │     12     │ │  10 625 F  │ │     3      │     │
-│ └────────────┘ └────────────┘ └────────────┘ └────────────┘     │
-├─────────────────────────────────────────────────────────────────┤
-│ Top produits du jour             │  Alertes stock                │
-│ [Tableau 5 produits]             │  ⚠ Vis 6mm  — stock : 2/min 10│
-│                                  │  ⚠ Ciment   — stock : 0/min 5  │
-├─────────────────────────────────────────────────────────────────┤
-│ Encours clients                  │  Classification ABC/XYZ        │
-│ [Liste credit_balance > 0]       │  [Graphique classes A/B/C]    │
-└─────────────────────────────────────────────────────────────────┘
+`GET /api/v1/reports/vendeur/dashboard` (JWT → cashier_id auto)
+
+```json
+{
+  "cashier": { "id": "uuid", "full_name": "Idrissa Kaboré", "branch_name": "Boutique Nord" },
+  "kpis_jour": { "ca_jour": 145000, "nb_ventes": 8, "panier_moyen": 18125 },
+  "kpis_mois": { "ca_mois": 3250000, "nb_ventes": 142, "commission_estimee": 65000 },
+  "progression_objectif_pct": 65.0,
+  "historique_par_heure": [{"heure": 8, "ca": 45000}],
+  "top_produits_mois": [...],
+  "dernieres_ventes": [...]
+}
 ```
 
-## 22.7 Export des rapports (RF-29)
+**Config :** `COMMISSION_RATE` (2% par défaut), `VENDEUR_MONTHLY_TARGET` (500 000 FCFA par défaut)
 
-| Rapport exportable | Endpoint | Format |
+## 22.5 Dashboard analytique étendu (`/analytique`)
+
+Page `AnalyticsPage.tsx` (1371 lignes) avec **9 onglets** :
+
+| Onglet | Endpoint | Visualisation |
 |---|---|---|
-| Export stock complet | `GET /reports/stock/export` | Excel (.xlsx via openpyxl) |
-| Journal d'audit | `GET /users/audit-logs` (paginé) | JSON (mise en forme côté client) |
-| Rapport de ventes (période) | À venir | PDF (WeasyPrint / Jinja2) |
+| Vue d'ensemble | `/analytics/dashboard` + `/sales-trend` | AreaChart tendance CA, BarChart top produits |
+| Prévisions demande | `/analytics/forecast` | Tableau alertes rupture + quantité recommandée |
+| Scoring crédit | `/analytics/credit-scores` | Tableau score coloré + BarChart distribution |
+| Anomalies | `/analytics/anomalies` | Tableau ventes signalées + raisons lisibles |
+| ABC/XYZ | `/analytics/abc-xyz` | Tableau + BarChart CA par classe |
+| Segmentation RFM | `/analytics/rfm-segments` | Tableau + BarChart par segment |
+| Modèles ML | `/analytics/ml/models` | Registre avec métriques et algorithmes |
+| Cohortes clients | `/analytics/cohorts` | Heatmap rétention M+0..M+12 + BarChart M+1/M+3 |
+| Valeur vie client | `/analytics/clv` | 4 KPIs + BarChart top 10 + tableau complet |
 
-## 22.8 Variables d'environnement liées au dashboard temps réel
+## 22.6 Comparatif inter-succursales (`/comparatif`)
 
-| Variable | Défaut | Description |
+`GET /api/v1/reports/branches/compare?date_debut=2024-01-01&date_fin=2024-06-30`
+
+**Visualisations (BranchComparePage.tsx) :**
+
+- **RadarChart Recharts** : 5 axes normalisés 0-100 (CA, Nb ventes, Panier moyen, Marge %, Clients actifs) — une courbe par succursale, couleurs distinctives
+- **BarChart CA/Marge** : côte à côte par succursale
+- **BarChart évolution mensuelle** : CA mensuel par succursale
+- **Cards KPI** : par succursale avec couleur dédiée
+- **Tableau récapitulatif** : marge_pct colorée (vert ≥ 20%, ambre ≥ 10%, rouge < 10%)
+
+## 22.7 Bibliothèque graphique — Recharts
+
+| Composant Recharts | Utilisé pour |
+|---|---|
+| `<AreaChart>` | Tendance ventes, historique heure par heure vendeur |
+| `<BarChart>` | ABC/XYZ, top produits, RFM, CLV, évolution mensuelle |
+| `<RadarChart>` | Comparatif inter-succursales (5 axes normalisés) |
+| `<PieChart>` | Répartition par segment (optionnel) |
+
+**Particularités TypeScript Recharts :**
+- `formatter={(v) => [fmt(v as number), "CA"]}` — cast explicite requis
+- `labelFormatter={(label) => fmtHeure(label as number)}` — cast requis
+
+## 22.8 React Query — Chargement différé
+
+Chaque onglet de l'AnalyticsPage charge ses données uniquement quand il est sélectionné :
+
+```typescript
+const cohortsQuery = useQuery({
+  queryKey: ["analytics", "cohorts", { months }],
+  queryFn: () => analyticsApi.cohorts({ months }),
+  enabled: tab === "cohorts",   // ← lazy loading
+  staleTime: 300_000,           // 5 minutes de fraîcheur
+});
+```
+
+## 22.9 Codage couleur standardisé
+
+| Contexte | Couleur | Seuil |
 |---|---|---|
-| `DISABLE_SSE` | `false` | `true` = mode mono-shot (PythonAnywhere/uWSGI). Le frontend détecte l'événement `sse-disabled` et bascule sur polling. |
-| `DASHBOARD_STREAM_INTERVAL_SECONDS` | `5` | Intervalle entre deux événements SSE (secondes). |
-| `DASHBOARD_STREAM_MAX_EVENTS` | `60` | Nombre max d'événements avant fermeture propre du flux (≈ 5 min avec l'intervalle de 5 s). Le client se reconnecte automatiquement après 5 s. |
+| Risque crédit FAIBLE / classe A / Marge OK | Vert `green-*` | Score ≥ 71, marge ≥ 20% |
+| Risque MOYEN / classe B | Ambre `amber-*` | Score 41-70, marge ≥ 10% |
+| Risque ÉLEVÉ / classe C | Rouge `red-*` | Score ≤ 40, marge < 10% |
+| Rétention cohorte M+0 | Indigo | 100% (référence) |
+| CLV estimée | Indigo `indigo-700` | — |
 
-## 22.9 Visualisations recommandées (bibliothèques)
+## 22.10 Permissions RBAC
 
-| Visualisation | Librairie | Données |
+| Dashboard | Permission | Rôles |
 |---|---|---|
-| Courbes d'évolution CA/marge | Recharts | `sales` agrégées par jour |
-| Treemap ABC/XYZ | D3.js | `predictions` (ABC_XYZ) |
-| Diagramme en secteurs RFM | Recharts | `fs_customer_rfm` |
-| Jauge couverture stock | Recharts (RadialBarChart) | `stock.quantity` vs `product.min_stock_threshold` |
+| Dashboard principal | `reports:read` | ADMIN |
+| Analytique + ML | `analytics:read` | ADMIN |
+| Dashboard vendeur | `reports:read` (propre au JWT) | VENDEUR, ADMIN |
+| Comparatif succursales | `reports:read` | ADMIN |
+| Cohortes + CLV | `analytics:read` | ADMIN |

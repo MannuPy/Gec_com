@@ -37,4 +37,5 @@ load_dotenv(os.path.join(PROJECT_HOME, ".env"))
 
 # ---- 3. Créer l'application Flask ----
 from app import create_app  # noqa: E402
-
+
+application = create_app("production")

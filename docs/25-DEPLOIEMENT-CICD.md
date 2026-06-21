@@ -349,4 +349,37 @@ sur PythonAnywhere), puis uploadé :
 # En local
 cd frontend
 npm ci
-npm run build      
+npm run build        # génère frontend/dist/
+
+# Upload vers PythonAnywhere (ex. via git, ou rsync/scp)
+# Le dossier doit correspondre à SERVE_FRONTEND_DIST défini dans .env
+```
+
+Une fois `SERVE_FRONTEND_DIST=/home/<utilisateur>/gescom-bf/frontend/dist`
+défini dans `.env` et l'application rechargée, Flask sert le SPA (avec
+fallback `index.html` pour le routage client) et l'API sous le même
+domaine — `VITE_API_URL` doit rester vide (le client utilise `/api/v1`
+relatif, cf. `frontend/src/api/client.ts`).
+
+### 25.9.7 Tâches planifiées (remplacement de Celery beat)
+
+Onglet **Tasks** de PythonAnywhere — ajouter des tâches planifiées
+équivalentes au `beat_schedule` de `app/celery_app.py` :
+
+| Fréquence (UTC) | Commande | Rôle |
+|---|---|---|
+| Quotidienne, 02h00 | `cd ~/gescom-bf/backend && venv/bin/flask etl-daily` | Pipeline ETL (extraction → validation → feature store, §21.6) |
+| Quotidienne, 02h30 | `cd ~/gescom-bf/backend && venv/bin/flask ml-train-all` | Réentraînement des modèles (demande, scoring crédit, anomalies, ABC/XYZ, RFM — RF-25 à RF-28) |
+| Horaire (si plan suffisant) | `cd ~/gescom-bf/backend && venv/bin/flask ml-detect-anomalies` | Détection d'anomalies sur les ventes récentes (RF-28), sinon couverte par `ml-train-all` |
+
+> Le nombre de tâches planifiées simultanées dépend du plan PythonAnywhere ;
+> sur un plan limité, regrouper dans `ml-train-all` (déjà le cas par défaut).
+
+### 25.9.8 Vérification post-déploiement
+
+- `GET https://<utilisateur>.pythonanywhere.com/health` → `{"status": "ok"}`
+- Connexion avec le compte créé par `flask seed` (cf. `SEED_ADMIN_EMAIL` /
+  `SEED_ADMIN_PASSWORD`), puis changement de mot de passe imposé (RF-05).
+- Dashboard (`/reports/dashboard`) : vérifier que les données s'affichent en
+  temps réel (SSE) ou via le badge de polling (fallback automatique, §25.9.1).
+- Logs d'erreurs : onglet **Web** -> **Log files** (`error.log`, `server.log`).

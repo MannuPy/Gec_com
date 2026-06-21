@@ -259,4 +259,12 @@ ls ~/gescom-bf/frontend/dist/index.html
 # → page de connexion GesCom-BF
 ```
 
-Si le site affiche encore une page blanche après avoir copié les fichiers : recharger l'ap
+Si le site affiche encore une page blanche après avoir copié les fichiers : recharger l'application dans l'onglet **Web**.
+
+---
+
+## Références
+
+- Guide de déploiement principal : `docs/33-GUIDE-COMPLET-MISE-EN-LIGNE-PYTHONANYWHERE.md`
+- Script SCP : `scripts/deploy-frontend-ssh.sh`
+- GitHub Actions : `.github/workflows/deploy-pythonanywhere.yml`

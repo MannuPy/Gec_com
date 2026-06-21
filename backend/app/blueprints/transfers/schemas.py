@@ -60,4 +60,4 @@ class TransferSchema(Schema):
         return obj.source_branch.name
 
     def get_destination_branch_name(self, obj):
-        return ob
+        return obj.destination_branch.name if obj.destination_branch else None

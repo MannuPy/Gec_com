@@ -574,4 +574,28 @@ pip install -r requirements.txt
 ```bash
 # Supprimer toutes les tables
 mysql -u <username> -h <username>.mysql.pythonanywhere-services.com -p<password> \
-  -e "DROP DATABASE \`<username>\$gescom_bf\`; CREATE DA
+  -e "DROP DATABASE \`<username>\$gescom_bf\`; CREATE DATABASE \`<username>\$gescom_bf\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+# Ré-appliquer les migrations
+cd ~/gescom-bf/backend && source .venv/bin/activate
+flask db upgrade
+python -m app.seed
+```
+
+---
+
+## Références
+
+| Document | Description |
+|---|---|
+| `docs/08-ARCHITECTURE-TECHNIQUE.md` | Architecture globale (VPS vs PythonAnywhere) |
+| `docs/09-BACKEND-FLASK.md` | Structure du backend, Blueprints, services |
+| `docs/11-BASE-DE-DONNEES.md` | Stratégie mono-tenant MySQL vs multi-tenant PostgreSQL |
+| `docs/14-MPD.md` | DDL de référence et notes de compatibilité MySQL |
+| `docs/18-SECURITE.md` | Sécurité : JWT, RBAC, CORS, secrets |
+| `docs/25-DEPLOIEMENT-CICD.md §25.9` | Notes PythonAnywhere dans le guide CI/CD |
+| `docs/27-MODELE-SAAS-MULTITENANT.md` | Multi-tenant PostgreSQL (futur VPS) |
+| `backend/.env.pythonanywhere.example` | Template `.env` complet pour PythonAnywhere |
+| `backend/app/utils/db_dialect.py` | Détection automatique du dialecte DB |
+| `backend/app/utils/tenant.py` | `set_search_path` (no-op sur MySQL) |
+| `backend/app/services/tenant_provisioning.py` | Garde 503 sur MySQL |

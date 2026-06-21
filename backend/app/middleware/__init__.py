@@ -1,1 +1,1 @@
-"""Middlewares applicatifs (multi-tenant, etc.)."""
+"""Middlewares applicatifs (multi-tenant, etc.)."""

@@ -209,3 +209,16 @@ Transactions
 
 ## Cas d'usage
 
+- Prévision des ventes
+- Détection des anomalies
+- Clustering clients
+- Analyse ABC
+- Rotation des stocks
+- Recommandation de réapprovisionnement
+
+## Technologies
+
+- pandas
+- scikit-learn
+- Prophet
+- XGBoost

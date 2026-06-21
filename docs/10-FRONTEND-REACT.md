@@ -141,4 +141,4 @@ Détails complets dans `26-GESTION-OFFLINE-PWA.md`.
 }
 ```
 
-> Remarque : la couverture complète du mooré (langue à transmission majoritairement orale) se concentre sur les **libellés produits et catég
+> Remarque : la couverture complète du mooré (langue à transmission majoritairement orale) se concentre sur les **libellés produits et catégories** les plus utilisés, établis avec des utilisateurs pilotes — cf. `29-WIREFRAMES-UI.md` pour le processus de collecte terminologique.

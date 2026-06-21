@@ -17,4 +17,4 @@ celery = init_celery(flask_app)
 # Importé après `init_celery` pour enregistrer les tâches auprès de
 # l'instance Celery configurée.
 from app.tasks import ml_tasks  # noqa: E402,F401
-from app.tasks import etl_tasks 
+from app.tasks import etl_tasks  # noqa: E402,F401

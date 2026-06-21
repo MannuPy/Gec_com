@@ -149,4 +149,90 @@ class SaleService:
 | Code HTTP | Code applicatif | Cas d'usage |
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | Données d'entrée invalides (Marshmallow) |
-| 401 | `INVALID_CREDENTIALS` / `TOKEN_
+| 401 | `INVALID_CREDENTIALS` / `TOKEN_EXPIRED` | Authentification |
+| 403 | `FORBIDDEN` / `ACCOUNT_DISABLED` | RBAC, compte désactivé |
+| 404 | `NOT_FOUND` | Ressource inexistante |
+| 409 | `INSUFFICIENT_STOCK` / `CONFLICT` | Conflits métier |
+| 422 | `DISCOUNT_APPROVAL_REQUIRED` | Règle de gestion non respectée |
+| 500 | `INTERNAL_ERROR` | Erreur serveur (loggée, message générique côté client) |
+
+## 9.7 Tâches planifiées (Celery Beat sur VPS · Scheduled Tasks sur PythonAnywhere)
+
+| Tâche | Commande CLI Flask | Fréquence | Description |
+|---|---|---|---|
+| `recompute_stock_predictions` | `flask ml-train-all` | Quotidienne (02h00) | Réentraîne/actualise les prévisions Prophet/XGBoost par produit/site (RG-37) |
+| `recompute_credit_scores` | — (déclenché par signal) | À chaque vente à crédit + nuit | Met à jour le score de solvabilité (RG-39) |
+| `run_anomaly_detection` | `flask anomaly-detect` | Toutes les heures | Exécute Isolation Forest sur les transactions récentes |
+| `compute_abc_xyz` | `flask abc-xyz` | Hebdomadaire | Recalcule la classification ABC/XYZ |
+| `db_backup` | `flask db-backup` | Quotidienne (03h00) | `pg_dump` (VPS) ou export MySQL (PythonAnywhere) |
+| `purge_old_audit_logs` | `flask purge-audit-logs` | Mensuelle | Archive les logs > 1 an vers stockage froid |
+| ETL Feature Store | `flask etl-daily` | Quotidienne | Extraction, validation, feature engineering |
+
+> Sur **PythonAnywhere**, ces commandes sont exécutées via les **Scheduled Tasks** (onglet "Tasks") — Celery et Redis ne sont pas requis. Sur VPS, Celery Beat les déclenche selon la config `CELERY_BEAT_SCHEDULE`.
+
+## 9.8 Configuration par environnement
+
+```python
+# app/config.py (extrait)
+class BaseConfig:
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    # JWT : durée de vie des tokens (lus depuis .env)
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(
+        minutes=int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRES_MINUTES", 60))
+    )
+    JWT_REFRESH_TOKEN_EXPIRES = timedelta(
+        days=int(os.environ.get("JWT_REFRESH_TOKEN_EXPIRES_DAYS", 7))
+    )
+    CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+
+class DevConfig(BaseConfig):
+    DEBUG = True   # N'active PAS le rechargeur Werkzeug (voir §9.9)
+
+class ProdConfig(BaseConfig):
+    DEBUG = False
+    PROPAGATE_EXCEPTIONS = True
+```
+
+## 9.9 Corrections de stabilité (dev Docker Compose)
+
+### 9.9.1 Werkzeug reloader désactivé (`--no-reload`)
+
+En développement Docker/WSL2, le rechargeur de fichiers Werkzeug (`DEBUG=True`) surveille les fichiers montés via volume (`./backend:/app`). Sur WSL2, les événements `inotify` peuvent être déclenchés par des opérations normales du système de fichiers et provoquer des redémarrages de Flask en cours de session — invalidant les tokens JWT en mémoire et forçant une reconnexion toutes les ~72 secondes.
+
+**Correction appliquée dans `docker-compose.yml`** :
+
+```yaml
+command: >
+  sh -c "flask db upgrade && python -m app.seed &&
+         flask run --host=0.0.0.0 --port=5000 --no-reload"
+```
+
+> `--no-reload` désactive le rechargeur de fichiers. Pour appliquer une modification de code, relancer manuellement le conteneur `api` (`docker compose restart api`).
+
+### 9.9.2 Clé secrète JWT (longueur minimale HMAC)
+
+Flask-JWT-Extended émet un `InsecureKeyLengthWarning` si `JWT_SECRET_KEY` fait moins de 32 octets. La valeur par défaut `"dev-jwt-secret"` (15 octets) déclenchait cet avertissement.
+
+**Variable `.env` correcte** :
+
+```env
+# Générer : python3 -c "import secrets; print(secrets.token_hex(32))"
+# (produit 64 caractères hex = 256 bits — minimum recommandé : 32 octets)
+JWT_SECRET_KEY=<64 caractères hex>
+JWT_ACCESS_TOKEN_EXPIRES_MINUTES=60
+```
+
+> En production PythonAnywhere, utiliser `secrets.token_hex(32)` (128 bits minimum, 256 bits recommandé). Ne jamais committer la vraie clé dans le dépôt.
+
+### 9.9.3 Celery : avertissement de connexion au démarrage
+
+Depuis Celery 5.3, la tentative de reconnexion au broker au démarrage sans configuration explicite génère un `CPendingDeprecationWarning`.
+
+**Correction appliquée dans `backend/app/celery_app.py`** :
+
+```python
+celery_app.conf.update(
+    broker_connection_retry_on_startup=True,   # supprime le warning Celery 5.3+
+    # ... autres clés de configuration
+)
+```

@@ -80,4 +80,23 @@ erDiagram
 | `sales` | ~500 000 (2 000/jour × 250 jours) | Élevée |
 | `sale_lines` | ~1 500 000 (×3 lignes/vente moyen) | Élevée |
 | `audit_logs` | ~1 000 000 | Élevée (rétention 1 an, archivage) |
-| `predictions` | ~20 000/jour (1 par produit/site actif) | Élevée (purge > 90 
+| `predictions` | ~20 000/jour (1 par produit/site actif) | Élevée (purge > 90 jours) |
+
+## 11.5 Stratégie de déploiement — mono-tenant (MySQL) vs multi-tenant (PostgreSQL)
+
+| Mode | Base de données | Isolation | Disponibilité |
+|---|---|---|---|
+| **Mono-tenant V1** (PythonAnywhere) | MySQL 8.0 | Toutes les tables dans `<user>$gescom_bf` | ✅ Production immédiate |
+| **Multi-tenant V2** (VPS / PostgreSQL) | PostgreSQL 16 | Schéma dédié par tenant (`tenant_<slug>`) | 🔜 Migration VPS |
+
+**Mode mono-tenant (MySQL — actif en production PythonAnywhere) :**
+- Toutes les tables des 32 migrations coexistent dans la même base MySQL.
+- `SET search_path` est désactivé (no-op dans `app/utils/tenant.py`).
+- `CREATE SCHEMA` est omis dans les migrations (détection automatique du dialecte).
+- `POST /api/v1/companies/register` retourne `503 MULTI_TENANT_UNAVAILABLE` (cf. `app/services/tenant_provisioning.py`).
+
+**Mode multi-tenant (PostgreSQL — dev Docker et futur VPS) :**
+- Chaque entreprise cliente dispose de son propre **schéma PostgreSQL** (`tenant_<slug>`).
+- Le schéma `public` contient les tables transverses : `companies` et `user_index`.
+- `SET search_path TO tenant_<slug>, public` est exécuté à chaque requête par le middleware.
+- Voir `27-MODELE-SAAS-MULTITENANT.md` pour le détail des migrations multi-schéma.

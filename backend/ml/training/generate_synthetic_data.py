@@ -344,4 +344,14 @@ def main() -> None:
 
     app = create_app()
     with app.app_context():
-        n_
+        n_sales = generate_sales_history(app, args.months, rng)
+        n_customers = generate_credit_customers(app, args.months, args.extra_customers, rng)
+
+    print(
+        f"Données synthétiques générées : {n_sales} ventes sur {args.months} mois, "
+        f"{n_customers} nouveaux clients crédit."
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -8,4 +8,15 @@ dist-ssr
 
 # Logs
 npm-debug.log*
-yarn
+yarn-debug.log*
+yarn-error.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

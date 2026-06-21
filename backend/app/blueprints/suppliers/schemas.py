@@ -70,4 +70,4 @@ class ReceptionSchema(Schema):
         return obj.branch.name
 
     def get_total_amount(self, obj):
-        return str
+        return str(sum((line.quantity * line.unit_purchase_price) for line in obj.lines))

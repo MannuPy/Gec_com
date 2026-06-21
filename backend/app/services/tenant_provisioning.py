@@ -125,4 +125,8 @@ def provision_tenant(
     db.session.add(admin_user)
     db.session.flush()
 
-    # 5. Index global email -> schéma (§27.7), dans 
+    # 5. Index global email -> schéma (§27.7), dans `public.user_index`.
+    register_user_index(admin_email, schema_name)
+    db.session.commit()
+
+    return company, admin_user

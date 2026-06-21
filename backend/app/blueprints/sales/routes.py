@@ -24,7 +24,7 @@ from app.blueprints.sales.schemas import (
     SaleSyncResultSchema,
 )
 from app.extensions import db
-from app.models import AuditLog, Customer, CustomerPayment, CustomerPaymentStatus, Product, Sale, SaleLine
+from app.models import AuditLog, Customer, CustomerPayment, CustomerPaymentStatus, Product, Sale, SaleLine, SaleStatus
 from app.services.sale_service import (
     approve_refund,
     create_refund,
@@ -425,3 +425,134 @@ def settle_credit(customer_id: str):
         'amount_settled': str(amount),
         'new_credit_balance': str(customer.credit_balance),
     })
+
+
+# ---------------------------------------------------------------------------
+# Historique des credits clients (RF-26)
+# ---------------------------------------------------------------------------
+
+@sales_bp.get('/credits/history')
+@require_permission('customers:read', 'sales:read')
+def list_credits_history():
+    """Historique complet des credits : SOLDE, EN_COURS, NON_COMMENCE.
+
+    Contrairement a /credits qui ne liste que les clients avec encours > 0,
+    cet endpoint inclut aussi les clients entierement soldes.
+    """
+    from decimal import Decimal as _D
+
+    subq_has_payment = (
+        CustomerPayment.query
+        .with_entities(CustomerPayment.customer_id)
+        .distinct()
+        .subquery()
+    )
+    customers = (
+        Customer.query
+        .filter(
+            or_(
+                Customer.credit_balance > _D('0'),
+                Customer.id.in_(subq_has_payment)
+            )
+        )
+        .order_by(Customer.credit_balance.desc())
+        .all()
+    )
+
+    customer_ids = [c.id for c in customers]
+    payments_by_customer = {}
+    if customer_ids:
+        all_payments = (
+            CustomerPayment.query
+            .filter(CustomerPayment.customer_id.in_(customer_ids))
+            .order_by(CustomerPayment.created_at.desc())
+            .all()
+        )
+        for p in all_payments:
+            payments_by_customer.setdefault(p.customer_id, []).append(p)
+
+    status_filter = request.args.get('credit_status')
+
+    result = []
+    for c in customers:
+        pmts = payments_by_customer.get(c.id, [])
+        paid_pmts = [p for p in pmts if p.status == CustomerPaymentStatus.PAID.value]
+        total_paid = sum(p.amount for p in paid_pmts) if paid_pmts else _D('0')
+        balance = c.credit_balance
+
+        if balance == _D('0') and paid_pmts:
+            credit_status = 'SOLDE'
+        elif balance > _D('0') and paid_pmts:
+            credit_status = 'EN_COURS'
+        else:
+            credit_status = 'NON_COMMENCE'
+
+        if status_filter and credit_status != status_filter:
+            continue
+
+        result.append({
+            'customer_id': c.id,
+            'customer_name': c.full_name,
+            'customer_phone': c.phone,
+            'customer_type': c.customer_type,
+            'credit_balance': str(c.credit_balance),
+            'credit_limit': str(c.credit_limit),
+            'credit_status': credit_status,
+            'total_payments': len(pmts),
+            'paid_payments': len(paid_pmts),
+            'total_paid_amount': str(total_paid),
+            'payments': customer_payments_schema.dump(pmts[:10]),
+        })
+
+    return jsonify(result)
+
+
+# ---------------------------------------------------------------------------
+# Historique des retours produits (avoirs traites)
+# ---------------------------------------------------------------------------
+
+@sales_bp.get('/refunds/history')
+@require_permission('sales:refund')
+def list_refunds_history():
+    """Historique des retours traites : AVOIR_EMIS (approuves) et ANNULEE (rejetes)."""
+    status_filter = request.args.get('status')
+
+    query = Sale.query.filter(
+        Sale.refund_of_sale_id.isnot(None),
+        Sale.status.in_([SaleStatus.AVOIR_EMIS.value, SaleStatus.ANNULEE.value])
+    )
+    if status_filter in (SaleStatus.AVOIR_EMIS.value, SaleStatus.ANNULEE.value):
+        query = query.filter(Sale.status == status_filter)
+
+    refunds = query.order_by(Sale.created_at.desc()).limit(200).all()
+
+    rejected_ids = [r.id for r in refunds if r.status == SaleStatus.ANNULEE.value]
+    rejection_reasons = {}
+    if rejected_ids:
+        logs = (
+            AuditLog.query
+            .filter(
+                AuditLog.event_type == 'REFUND_REJECTED',
+                AuditLog.entity_id.in_(rejected_ids)
+            )
+            .order_by(AuditLog.created_at.desc())
+            .all()
+        )
+        for log in logs:
+            if log.entity_id not in rejection_reasons:
+                meta = log.metadata_json or {}
+                rejection_reasons[log.entity_id] = meta.get('reason', '')
+
+    result = []
+    for refund in refunds:
+        admin = refund.approved_by
+        dumped = sale_schema.dump(refund)
+        dumped['admin_name'] = admin.full_name if admin else None
+        dumped['rejection_reason'] = (
+            rejection_reasons.get(refund.id, '')
+            if refund.status == SaleStatus.ANNULEE.value
+            else None
+        )
+        result.append(dumped)
+
+    return jsonify(result)

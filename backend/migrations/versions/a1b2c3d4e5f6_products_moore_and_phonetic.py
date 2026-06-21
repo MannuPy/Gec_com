@@ -58,4 +58,5 @@ def downgrade():
     with op.batch_alter_table('products', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_products_name_phonetic'))
         batch_op.drop_column('name_phonetic')
-        batch_op.d
+        batch_op.drop_column('name_moore')
+    # ### end Alembic commands ###

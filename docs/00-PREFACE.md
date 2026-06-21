@@ -85,4 +85,5 @@ Créer une solution SaaS **simple, robuste, abordable et résiliente** (toléran
 | `27-MODELE-SAAS-MULTITENANT.md` | Architecture multi-tenant, pricing |
 | `28-MONITORING-OBSERVABILITE.md` | Logs, audit, alerting |
 | `29-WIREFRAMES-UI.md` | Maquettes des écrans clés |
-| `30-GLOSSAIRE-ANNEXES.md` | Glossaire et a
+| `30-GLOSSAIRE-ANNEXES.md` | Glossaire et annexes techniques |
+| `31-CONCLUSION-PERSPECTIVES.md` | Bilan et évolutions futures |

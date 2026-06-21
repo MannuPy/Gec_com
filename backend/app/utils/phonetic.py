@@ -85,4 +85,6 @@ def phonetic_code(text: str | None) -> str:
     if not text:
         return ""
 
-    words = re.split(r"\s+", text.strip())
+    words = re.split(r"\s+", text.strip())
+    codes = [_encode_word(w) for w in words]
+    return "".join(c for c in codes if c)

@@ -3,4 +3,4 @@ from flask import Blueprint
 
 analytics_bp = Blueprint("analytics", __name__)
 
-from app.blueprints.analytics import routes  # noqa: E402,
+from app.blueprints.analytics import routes  # noqa: E402,F401

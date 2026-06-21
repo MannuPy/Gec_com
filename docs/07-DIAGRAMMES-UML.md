@@ -407,4 +407,23 @@ flowchart TB
         SCHED[Celery Beat - tâches planifiées]
     end
     subgraph Data
-        PG[(PostgreSQL multi-schéma
+        PG[(PostgreSQL multi-schéma)]
+        REDIS[(Redis - cache, queue, pub/sub)]
+    end
+    subgraph IA
+        ML[Modèles Prophet / XGBoost / sklearn]
+        MLFLOW[(MLflow - registry & lineage)]
+    end
+
+    PWA <--> NGINX
+    NGINX <--> API
+    API <--> PG
+    API <--> REDIS
+    API --> WORKER
+    SCHED --> WORKER
+    WORKER <--> PG
+    WORKER <--> REDIS
+    WORKER <--> ML
+    ML <--> MLFLOW
+    API -.WebSocket alertes.-> PWA
+```

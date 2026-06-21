@@ -3,10 +3,12 @@
  *
  * Workflow :
  *   1. Vendeur initie un retour via la page Historique des ventes
- *      (POST /sales/{id}/refund → statut EN_ATTENTE_APPROBATION)
+ *      (POST /sales/{id}/refund -> statut EN_ATTENTE_APPROBATION)
  *   2. Admin voit ici la liste des retours en attente
- *   3. Admin clique "Approuver" → stock réintégré + remboursement client
- *      OU "Rejeter" → retour annulé, stock non réintégré
+ *   3. Admin clique "Approuver" -> stock reintegre + remboursement client
+ *      OU "Rejeter" -> retour annule, stock non reintegre
+ *
+ * Historique : bouton "Historique" -> liste AVOIR_EMIS + ANNULEE avec raisons
  */
 import { useState } from "react";
 import {
@@ -17,9 +19,14 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  History,
+  X,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
-import { usePendingRefunds, useApproveRefund, useRejectRefund } from "../hooks/useRefunds";
+import { usePendingRefunds, useApproveRefund, useRejectRefund, useRefundHistory } from "../hooks/useRefunds";
 import type { Sale } from "@/types/sale";
+import type { RefundHistoryItem } from "@/types/sale";
 import { useAuthStore } from "@/app/store";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +47,177 @@ function fmtDate(iso: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function fmtDateShort(iso: string) {
+  return new Date(iso).toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Modal historique retours
+// ---------------------------------------------------------------------------
+
+interface RefundHistoryModalProps {
+  onClose: () => void;
+}
+
+function RefundHistoryModal({ onClose }: RefundHistoryModalProps) {
+  const [statusFilter, setStatusFilter] = useState<"" | "AVOIR_EMIS" | "ANNULEE">("");
+
+  const { data: history = [], isLoading } = useRefundHistory(
+    statusFilter ? { status: statusFilter } : {}
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-16 overflow-y-auto">
+      <div className="w-full max-w-3xl rounded-xl bg-white shadow-2xl">
+        {/* En-tête */}
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <div className="flex items-center gap-2">
+            <History className="h-5 w-5 text-blue-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Historique des retours</h2>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Filtres statut */}
+        <div className="flex flex-wrap gap-2 border-b border-gray-100 px-6 py-3">
+          {(["", "AVOIR_EMIS", "ANNULEE"] as const).map((s) => {
+            const label = s === "" ? "Tous" : s === "AVOIR_EMIS" ? "Approuvés" : "Rejetés";
+            const active = statusFilter === s;
+            return (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className={[
+                  "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                  active
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 text-gray-600 hover:bg-gray-200",
+                ].join(" ")}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Liste */}
+        <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
+          {isLoading ? (
+            <div className="py-8 text-center text-sm text-gray-400">Chargement...</div>
+          ) : history.length === 0 ? (
+            <div className="py-8 text-center text-sm text-gray-400">
+              Aucun retour traité trouvé.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {history.map((item: RefundHistoryItem) => {
+                const approved = item.status === "AVOIR_EMIS";
+                return (
+                  <div
+                    key={item.id}
+                    className={[
+                      "rounded-lg border p-4",
+                      approved
+                        ? "border-green-200 bg-green-50"
+                        : "border-red-200 bg-red-50",
+                    ].join(" ")}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex items-center gap-2">
+                        {approved ? (
+                          <ThumbsUp className="h-4 w-4 text-green-600 shrink-0" />
+                        ) : (
+                          <ThumbsDown className="h-4 w-4 text-red-600 shrink-0" />
+                        )}
+                        <div>
+                          <p className="font-semibold text-gray-900">{item.reference}</p>
+                          <p className="text-xs text-gray-500">{fmtDateShort(item.created_at)}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-4 text-sm">
+                        <div>
+                          <p className="text-xs text-gray-500">Client</p>
+                          <p className="font-medium text-gray-900">{item.customer_name ?? "—"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Montant</p>
+                          <p className="font-bold text-gray-900">{fmt(item.total)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">Vendeur</p>
+                          <p className="font-medium text-gray-900">{item.cashier_name}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-gray-500">
+                            {approved ? "Approuvé par" : "Rejeté par"}
+                          </p>
+                          <p className="font-medium text-gray-900">{item.admin_name ?? "—"}</p>
+                        </div>
+                      </div>
+
+                      <span
+                        className={[
+                          "rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                          approved
+                            ? "bg-green-200 text-green-800"
+                            : "bg-red-200 text-red-800",
+                        ].join(" ")}
+                      >
+                        {approved ? "Approuvé" : "Rejeté"}
+                      </span>
+                    </div>
+
+                    {!approved && item.rejection_reason && (
+                      <div className="mt-2 rounded-md border border-red-200 bg-white px-3 py-2">
+                        <p className="text-xs font-medium text-red-700">Motif du rejet :</p>
+                        <p className="text-xs text-red-600">{item.rejection_reason}</p>
+                      </div>
+                    )}
+
+                    {item.lines && item.lines.length > 0 && (
+                      <div className="mt-2">
+                        <p className="mb-1 text-xs font-medium text-gray-600">
+                          Produits retournés ({item.lines.length}) :
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {item.lines.map((line) => (
+                            <span
+                              key={line.id}
+                              className="rounded-full bg-white border border-gray-200 px-2 py-0.5 text-xs text-gray-700"
+                            >
+                              {line.product_name} x{line.quantity}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-gray-100 px-6 py-3 text-right">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Fermer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -73,7 +251,7 @@ function RefundCard({ refund, canApprove }: RefundCardProps) {
 
   return (
     <div className="rounded-xl bg-white shadow-sm ring-1 ring-orange-200">
-      {/* En-tête */}
+      {/* En-tete */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-orange-100">
@@ -111,14 +289,14 @@ function RefundCard({ refund, canApprove }: RefundCardProps) {
         </button>
       </div>
 
-      {/* Détail des lignes (expand) */}
+      {/* Detail lignes */}
       {expanded && refund.lines && refund.lines.length > 0 && (
         <div className="border-t border-gray-100 px-4 pb-4 pt-3">
           <table className="w-full text-sm">
             <thead className="text-xs text-gray-500">
               <tr>
                 <th className="pb-2 text-left">Produit</th>
-                <th className="pb-2 text-center">Qté retournée</th>
+                <th className="pb-2 text-center">Qte retournée</th>
                 <th className="pb-2 text-right">Prix unitaire</th>
                 <th className="pb-2 text-right">Total ligne</th>
               </tr>
@@ -140,13 +318,13 @@ function RefundCard({ refund, canApprove }: RefundCardProps) {
         </div>
       )}
 
-      {/* Avertissement + actions admin */}
+      {/* Actions admin */}
       <div className="border-t border-orange-100 bg-orange-50 px-4 py-3 rounded-b-xl">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-orange-700">
             <AlertTriangle className="h-4 w-4 shrink-0" />
             <span className="text-xs">
-              En attente d'approbation admin. Le stock n'est pas encore réintégré.
+              En attente d'approbation admin. Le stock n'est pas encore reintegre.
             </span>
           </div>
 
@@ -201,21 +379,31 @@ function RefundCard({ refund, canApprove }: RefundCardProps) {
 // ---------------------------------------------------------------------------
 
 export default function RefundsPage() {
+  const [showHistory, setShowHistory] = useState(false);
   const { data: refunds = [], isLoading } = usePendingRefunds();
   const hasPermission = useAuthStore((s) => s.hasPermission);
   const canApprove = hasPermission("sales:refund");
 
   return (
     <div className="space-y-6">
-      {/* En-tête */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Retours produits</h1>
-        <p className="text-sm text-gray-500">
-          Retours initiés par les vendeurs — approbation requise pour réintégrer le stock
-        </p>
+      {/* En-tete */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Retours produits</h1>
+          <p className="text-sm text-gray-500">
+            Retours initiés par les vendeurs — approbation requise pour réintégrer le stock
+          </p>
+        </div>
+        <button
+          onClick={() => setShowHistory(true)}
+          className="flex items-center gap-2 rounded-lg border border-purple-300 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100"
+        >
+          <History className="h-4 w-4" />
+          Historique
+        </button>
       </div>
 
-      {/* Bannière workflow */}
+      {/* Banniere workflow */}
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
         <h3 className="mb-2 text-sm font-semibold text-blue-900">Comment fonctionne le retour ?</h3>
         <div className="flex flex-wrap gap-4 text-xs text-blue-800">
@@ -268,6 +456,9 @@ export default function RefundsPage() {
           ))}
         </div>
       )}
+
+      {/* Modal historique */}
+      {showHistory && <RefundHistoryModal onClose={() => setShowHistory(false)} />}
     </div>
   );
 }

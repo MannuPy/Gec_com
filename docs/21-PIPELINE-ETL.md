@@ -153,4 +153,4 @@ Pour rejouer une prédiction passée (audit, explication d'une anomalie) :
 | `fs_customer_credit_features` | Features de scoring crédit par client | Quotidien |
 | `fs_transaction_features` | Features de détection d'anomalies (fenêtre glissante 30j) | Horaire |
 
-> Ces tables résident dans le 
+> Ces tables résident dans le schéma tenant et sont purgées/recalculées (pas de conservation longue) — seules les sorties (`predictions`) sont conservées pour analyse historique.

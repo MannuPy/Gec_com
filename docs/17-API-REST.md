@@ -461,4 +461,190 @@ paths:
       requestBody:
         required: true
         content:
-          application/j
+          application/json:
+            schema:
+              type: object
+              required: [model_type]
+              properties:
+                model_type:
+                  type: string
+                  enum: [DEMAND_FORECAST, CREDIT_SCORING, ANOMALY_DETECTION, ABC_XYZ, RFM]
+                async:
+                  type: boolean
+                  default: false
+      responses:
+        '200':
+          description: Entraînement terminé (synchrone)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [ok] }
+                  model_type: { type: string }
+                  result: { type: object }
+        '202':
+          description: Entraînement planifié (Celery async)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [queued] }
+                  task_id: { type: string }
+                  model_type: { type: string }
+        '400': { description: Type de modèle inconnu ou manquant }
+
+  /sync/sales:
+    post:
+      summary: Synchroniser un lot de ventes saisies hors-ligne
+      tags: [Sync]
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sales:
+                  type: array
+                  items: { $ref: '#/components/schemas/SaleCreateRequest' }
+      responses:
+        '200':
+          description: Résultat de synchronisation par vente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  results:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        offline_uuid: { type: string, format: uuid }
+                        status: { type: string, enum: [VALIDEE, EN_CONFLIT, DEJA_SYNCHRONISE] }
+                        sale_id: { type: string, format: uuid }
+
+  /ai/stock-predictions:
+    get:
+      summary: Lister les prévisions de rupture de stock
+      tags: [AI]
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: query
+          name: branch_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: horizon_days
+          schema: { type: integer, enum: [7, 14, 30], default: 7 }
+      responses:
+        '200':
+          description: Liste des prévisions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    product_id: { type: string, format: uuid }
+                    branch_id: { type: string, format: uuid }
+                    predicted_stockout_date: { type: string, format: date, nullable: true }
+                    recommended_order_qty: { type: integer }
+                    model_version: { type: string }
+
+  /ai/credit-score/{customer_id}:
+    get:
+      summary: Obtenir le score de solvabilité d'un client
+      tags: [AI]
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: customer_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Score de solvabilité
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customer_id: { type: string, format: uuid }
+                  score: { type: number, minimum: 0, maximum: 100 }
+                  risk_level: { type: string, enum: [FAIBLE, MOYEN, ELEVE] }
+                  model_version: { type: string }
+
+  /users/audit-logs:
+    get:
+      summary: Consulter les journaux d'audit applicatif (RF-26)
+      tags: [Users]
+      security: [ { bearerAuth: [] } ]
+      description: Exposé sous `/users/audit-logs` (blueprint `users`). Requiert `users:read`.
+      parameters:
+        - in: query
+          name: user_id
+          schema: { type: string, format: uuid }
+        - in: query
+          name: event_type
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, default: 50, maximum: 200 }
+      responses:
+        '200':
+          description: Liste paginée des logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { type: object }
+                  meta:
+                    type: object
+                    properties:
+                      page: { type: integer }
+                      per_page: { type: integer }
+                      total: { type: integer }
+        '403': { description: Accès réservé à l'administrateur }
+```
+
+## 17.3 Codes d'erreur applicatifs (référence croisée RG)
+
+| Code | HTTP | Règle de gestion | Module |
+|---|---|---|---|
+| `INVALID_CREDENTIALS` | 401 | - | Auth |
+| `TOKEN_EXPIRED` | 401 | RG-36 | Auth |
+| `ACCOUNT_DISABLED` | 403 | - | Auth |
+| `FORBIDDEN` | 403 | RBAC | Tous |
+| `VALIDATION_ERROR` | 400 | RG-08 à RG-10, RG-22 | Produits, Ventes |
+| `INSUFFICIENT_STOCK` | 409 | RG-18, RG-24 | Transferts, Ventes |
+| `DISCOUNT_APPROVAL_REQUIRED` | 422 | RG-23 | Ventes |
+| `SALE_IMMUTABLE` | 409 | RG-27 | Ventes |
+| `CREDIT_REQUIRES_CUSTOMER` | 422 | RG-26 | Ventes |
+| `SYNC_CONFLICT` | 200 (statut métier) | RG-29, RG-30 | Sync |
+
+## 17.4 Endpoints — vue d'ensemble par module
+
+| Module | Endpoints principaux |
+|---|---|
+| Auth | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/change-password` |
+| Users | `GET/POST /users`, `GET/PUT /users/{id}`, `GET /users/roles`, `GET /users/audit-logs` |
+| Products | `GET/POST /products`, `PUT /products/{id}`, `GET/POST /categories`, `GET/POST /brands`, `GET /branches` |
+| Suppliers | `GET/POST /suppliers`, `GET/POST /receptions`, `POST /receptions/{id}/validate` |
+| Stock | `GET /stock`, `GET /stock/movements` |
+| Transfers | `GET/POST /transfers`, `POST /transfers/{id}/receive` |
+| Sales | `GET/POST /sales`, `POST /sales/sync`, `GET /sales/{id}/receipt` (PDF), `POST /sales/{id}/refund`, `GET /sales/refunds/pending`, `PATCH /sales/{id}/refund/approve`, `PATCH /sales/{id}/refund/reject`, `GET /sales/credits`, `POST /sales/customers/{id}/settle` |
+| Customers | `GET/POST /sales/customers`, `GET/PUT /sales/customers/{id}`, `GET/POST /sales/customers/{id}/payments`, `PUT /sales/customers/{id}/payments/{pid}` |
+| Inventories | `POST /inventory`, `GET /inventory/{id}`, `POST /inventory/{id}/validate` |
+| Reports | `GET /reports/dashboard/summary`, `GET /reports/dashboard/realtime`, `GET /reports/dashboard/stream` (SSE), `GET /reports/stock/export` (Excel) |
+| Analytics | `GET /analytics/kpis`, `GET /analytics/abc-xyz`, `GET /analytics/ml/models`, `POST /analytics/ml/train` (body), `POST /analytics/ml/train/{type}` (URL param) |
+| AI | `GET /analytics/predictions/stock`, `GET /analytics/predictions/credit/{id}`, `GET /analytics/predictions/anomalies` |

@@ -107,4 +107,4 @@
 | 25 décembre | Noël | Hausse ventes peinture/décoration |
 | Juin à octobre | Saison des pluies | Hausse matériaux de construction (`is_rainy_season`, +40 %) |
 
-> Source 
+> Source à confirmer/compléter auprès du calendrier officiel du Burkina Faso pour l'année d'exploitation réelle.

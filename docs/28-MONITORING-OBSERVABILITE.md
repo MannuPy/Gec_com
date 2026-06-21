@@ -144,4 +144,5 @@ sentry_sdk.init(
 |---|---|---|
 | Logs applicatifs (Loki) | 30 jours | Suffisant pour le débogage opérationnel |
 | Journal d'audit (`audit_logs`) | 1 an minimum (table partitionnée par mois, cf. `16-CONTRAINTES-SQL.md`) | RNF-18, traçabilité métier/légale |
-| Métriques Prometheus | 9
+| Métriques Prometheus | 90 jours (résolution native), agrégats au-delà | Analyse de tendances |
+| Erreurs Sentry | 90 jours | Politique par défaut Sentry, ajustable |

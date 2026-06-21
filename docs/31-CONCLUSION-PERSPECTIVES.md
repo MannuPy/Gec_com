@@ -59,4 +59,4 @@ Cette documentation constitue un **dossier de conception complet et traçable**,
 
 ## 31.6 Mot de fin
 
-GesCom-BF se positionne non pas comme un simple exercice académique, mais comme **un prototype crédible de solution SaaS adaptée aux réalités des PME ouest-africaines**, conjuguant rigueur de conception logicielle et pertinence contextuelle. La feuille de route définie (`23-PLAN-DE-DEVELOPPEMENT.md`) et les perspectives ci-dessus tracent un chemin clair entre le livrable a
+GesCom-BF se positionne non pas comme un simple exercice académique, mais comme **un prototype crédible de solution SaaS adaptée aux réalités des PME ouest-africaines**, conjuguant rigueur de conception logicielle et pertinence contextuelle. La feuille de route définie (`23-PLAN-DE-DEVELOPPEMENT.md`) et les perspectives ci-dessus tracent un chemin clair entre le livrable académique et une éventuelle valorisation entrepreneuriale.

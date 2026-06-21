@@ -1146,4 +1146,44 @@ def run(months: int = 6, seed: int = 42) -> None:
         while offset <= total_days - 5:
             count_day = start_date + timedelta(days=offset)
             stock_count_days.setdefault(count_day, []).append(branch_code)
- 
+            offset += STOCK_COUNT_INTERVAL_DAYS
+
+    day = start_date
+    week_index = 0
+    while day <= today:
+        if day.weekday() == 0:
+            week_index += 1
+            generate_weekly_transfers(ctx, day)
+            if week_index % 2 == 0:
+                generate_supplier_reception(ctx, day, suppliers_by_name)
+
+        generate_daily_sales(ctx, day)
+
+        for branch_code in stock_count_days.get(day, []):
+            generate_stock_count(ctx, branch_code, day)
+
+        db.session.commit()
+        day += timedelta(days=1)
+
+    generate_refund_and_status_samples(ctx)
+    inject_anomalies(ctx)
+
+    for customer in customers:
+        customer.credit_balance = ctx.running_credit_unpaid.get(customer.id, ZERO)
+
+    db.session.commit()
+
+    print(
+        f"Donnees de demonstration generees : {ctx.sale_seq} ventes "
+        f"({start_date.isoformat()} -> {today.isoformat()}), "
+        f"{ctx.transfer_seq} transferts, {ctx.reception_seq} receptions, "
+        f"{ctx.count_seq} inventaires."
+    )
+
+
+if __name__ == "__main__":
+    from app import create_app
+
+    app = create_app()
+    with app.app_context():
+        run()

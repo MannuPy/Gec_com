@@ -152,4 +152,6 @@ flowchart LR
 | Acteur | Cas d'utilisation |
 |---|---|
 | **Administrateur** | UC-01, UC-02, UC-03, UC-04, UC-05, UC-06, UC-08, UC-15, UC-16 (consultation), UC-17, UC-18 |
-| **Magasinier** | UC-01, UC-02, U
+| **Magasinier** | UC-01, UC-02, UC-06, UC-07, UC-08, UC-09, UC-10 |
+| **Vendeur** | UC-01, UC-02, UC-09, UC-10, UC-11, UC-12, UC-13, UC-14 |
+| **Système** | UC-14, UC-16, UC-17, UC-18 |

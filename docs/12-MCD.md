@@ -92,4 +92,4 @@ erDiagram
 | RG-13 : le stock est toujours rattaché à un site | Cardinalité (1,1) entre STOCK et SITE |
 | RG-23 : une remise référence l'administrateur approbateur | Association REMISE-UTILISATEUR (1,1) |
 | RG-26 : une vente à crédit référence un client | Cardinalité (0,1) entre VENTE et CLIENT (0 si vente comptant anonyme) |
-| RG-40 :
+| RG-40 : une prédiction référence un modèle versionné | Association PREDICTION-MODELE_IA (1,1) |

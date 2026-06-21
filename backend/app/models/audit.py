@@ -37,4 +37,5 @@ class AuditLog(db.Model, UUIDPrimaryKeyMixin):
             description=description,
             metadata_json=metadata,
         )
-        db.s
+        db.session.add(entry)
+        return entry

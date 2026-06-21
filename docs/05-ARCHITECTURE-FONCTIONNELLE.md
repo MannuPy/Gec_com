@@ -145,3 +145,5 @@ flowchart LR
 | Inventaires | Stock | Ajustement (écart) |
 | Ventes | Audit | Log de vente, remise |
 | Authentification | Audit | Log de connexion |
+| Ventes / Stock | Analytics & IA | Données d'entraînement et features |
+| IA | Rapports / Dashboard | Prévisions, scores, anomalies, alertes |

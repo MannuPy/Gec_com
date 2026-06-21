@@ -4,6 +4,7 @@
  * KPIs + filtres + graphiques + tableau clients débiteurs
  * Actions : Réduire le crédit (paiement partiel) / Solder (paiement total)
  * Exports : Excel + PDF imprimable
+ * Historique : SOLDÉ / EN COURS / NON COMMENCÉ
  */
 import { useState, useMemo } from "react";
 import {
@@ -15,8 +16,6 @@ import {
   PieChart,
   Pie,
   Cell,
-  LineChart,
-  Line,
   CartesianGrid,
   Legend,
   ResponsiveContainer,
@@ -27,14 +26,17 @@ import {
   FileText,
   Filter,
   Search,
-  TrendingDown,
   Users,
   AlertTriangle,
   CheckCircle2,
   X,
+  History,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
-import { useCredits, useSettleCredit, useExportCreditsExcel, useExportCreditsPdf } from "../hooks/useCredits";
+import { useCredits, useSettleCredit, useExportCreditsExcel, useExportCreditsPdf, useCreditHistory } from "../hooks/useCredits";
 import type { Customer } from "@/types/customer";
+import type { CreditHistoryItem, CreditHistoryStatus } from "@/types/customer";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,8 +64,227 @@ const RISK_COLORS: Record<string, string> = {
   ÉLEVÉ: "#ef4444",
 };
 
+const CREDIT_STATUS_LABELS: Record<CreditHistoryStatus, string> = {
+  SOLDE: "Soldé",
+  EN_COURS: "En cours",
+  NON_COMMENCE: "Non commencé",
+};
+
+const CREDIT_STATUS_COLORS: Record<CreditHistoryStatus, string> = {
+  SOLDE: "#22c55e",
+  EN_COURS: "#f59e0b",
+  NON_COMMENCE: "#ef4444",
+};
+
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  PAID: "Payé",
+  PENDING: "En attente",
+  LATE: "En retard",
+  CANCELLED: "Annulé",
+};
+
+const PAYMENT_STATUS_COLORS: Record<string, string> = {
+  PAID: "#22c55e",
+  PENDING: "#f59e0b",
+  LATE: "#ef4444",
+  CANCELLED: "#94a3b8",
+};
+
 // ---------------------------------------------------------------------------
-// Modals
+// Modal historique crédit
+// ---------------------------------------------------------------------------
+
+interface CreditHistoryModalProps {
+  onClose: () => void;
+}
+
+function CreditHistoryModal({ onClose }: CreditHistoryModalProps) {
+  const [statusFilter, setStatusFilter] = useState<CreditHistoryStatus | "">("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const { data: history = [], isLoading } = useCreditHistory(
+    statusFilter ? { credit_status: statusFilter } : {}
+  );
+
+  function fmtDate(iso: string) {
+    return new Date(iso).toLocaleDateString("fr-FR", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-16 overflow-y-auto">
+      <div className="w-full max-w-3xl rounded-xl bg-white shadow-2xl">
+        {/* En-tête */}
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <div className="flex items-center gap-2">
+            <History className="h-5 w-5 text-blue-600" />
+            <h2 className="text-lg font-semibold text-gray-900">Historique des crédits</h2>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1 text-gray-400 hover:bg-gray-100">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Filtres statut */}
+        <div className="flex flex-wrap gap-2 border-b border-gray-100 px-6 py-3">
+          {(["", "SOLDE", "EN_COURS", "NON_COMMENCE"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s as CreditHistoryStatus | "")}
+              className={[
+                "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+                statusFilter === s
+                  ? "bg-blue-600 text-white"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200",
+              ].join(" ")}
+            >
+              {s === "" ? "Tous" : CREDIT_STATUS_LABELS[s as CreditHistoryStatus]}
+            </button>
+          ))}
+        </div>
+
+        {/* Liste */}
+        <div className="max-h-[60vh] overflow-y-auto px-4 py-3">
+          {isLoading ? (
+            <div className="py-8 text-center text-sm text-gray-400">Chargement...</div>
+          ) : history.length === 0 ? (
+            <div className="py-8 text-center text-sm text-gray-400">
+              Aucun historique de crédit trouvé.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {history.map((item: CreditHistoryItem) => {
+                const expanded = expandedId === item.customer_id;
+                return (
+                  <div
+                    key={item.customer_id}
+                    className="rounded-lg border border-gray-200 bg-gray-50"
+                  >
+                    <div
+                      className="flex cursor-pointer flex-wrap items-center justify-between gap-3 p-3"
+                      onClick={() => setExpandedId(expanded ? null : item.customer_id)}
+                    >
+                      <div>
+                        <p className="font-medium text-gray-900">{item.customer_name}</p>
+                        {item.customer_phone && (
+                          <p className="text-xs text-gray-400">{item.customer_phone}</p>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span
+                          className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                          style={{
+                            background: CREDIT_STATUS_COLORS[item.credit_status] + "22",
+                            color: CREDIT_STATUS_COLORS[item.credit_status],
+                          }}
+                        >
+                          {CREDIT_STATUS_LABELS[item.credit_status]}
+                        </span>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500">Encours</p>
+                          <p className="text-sm font-bold text-gray-900">
+                            {parseFloat(item.credit_balance).toLocaleString("fr-FR")} FCFA
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs text-gray-500">Payé</p>
+                          <p className="text-sm font-semibold text-green-600">
+                            {parseFloat(item.total_paid_amount).toLocaleString("fr-FR")} FCFA
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 text-xs text-gray-400">
+                          {item.paid_payments}/{item.total_payments} échéances
+                          {expanded ? (
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          ) : (
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {expanded && (
+                      <div className="border-t border-gray-200 px-3 pb-3 pt-2">
+                        {item.payments.length === 0 ? (
+                          <p className="text-xs text-gray-400 italic">Aucun paiement enregistré.</p>
+                        ) : (
+                          <table className="w-full text-xs">
+                            <thead className="text-gray-500">
+                              <tr>
+                                <th className="pb-1 text-left">Référence vente</th>
+                                <th className="pb-1 text-right">Montant</th>
+                                <th className="pb-1 text-center">Échéance</th>
+                                <th className="pb-1 text-center">Payé le</th>
+                                <th className="pb-1 text-center">Statut</th>
+                                <th className="pb-1 text-left">Note</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {item.payments.map((p) => (
+                                <tr key={p.id}>
+                                  <td className="py-1 text-gray-600">
+                                    {p.sale_reference ?? "—"}
+                                  </td>
+                                  <td className="py-1 text-right font-medium text-gray-900">
+                                    {parseFloat(p.amount).toLocaleString("fr-FR")}
+                                  </td>
+                                  <td className="py-1 text-center text-gray-500">
+                                    {fmtDate(p.due_date)}
+                                  </td>
+                                  <td className="py-1 text-center text-gray-500">
+                                    {p.paid_date ? fmtDate(p.paid_date) : "—"}
+                                  </td>
+                                  <td className="py-1 text-center">
+                                    <span
+                                      className="rounded-full px-2 py-0.5 font-medium"
+                                      style={{
+                                        background:
+                                          (PAYMENT_STATUS_COLORS[p.status] ?? "#94a3b8") + "22",
+                                        color: PAYMENT_STATUS_COLORS[p.status] ?? "#94a3b8",
+                                      }}
+                                    >
+                                      {PAYMENT_STATUS_LABELS[p.status] ?? p.status}
+                                    </span>
+                                  </td>
+                                  <td className="py-1 text-gray-500">{p.note ?? "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                        {item.total_payments > 10 && (
+                          <p className="mt-1 text-xs text-gray-400 italic">
+                            Affiche les 10 derniers paiements sur {item.total_payments}.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-gray-100 px-6 py-3 text-right">
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Fermer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Modal paiement
 // ---------------------------------------------------------------------------
 
 interface SettleModalProps {
@@ -174,6 +395,7 @@ export default function CreditsPage() {
   const [customerType, setCustomerType] = useState("");
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState<{ customer: Customer; mode: "partial" | "full" } | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   const { data: customers = [], isLoading } = useCredits({
     branch_id: branchId || undefined,
@@ -228,6 +450,13 @@ export default function CreditsPage() {
           <p className="text-sm text-gray-500">Encours clients · paiements partiels et soldages</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setShowHistory(true)}
+            className="flex items-center gap-2 rounded-lg border border-purple-300 bg-purple-50 px-3 py-2 text-sm font-medium text-purple-700 hover:bg-purple-100"
+          >
+            <History className="h-4 w-4" />
+            Historique
+          </button>
           <button
             onClick={() => exportXlsx.mutate()}
             disabled={exportXlsx.isPending}
@@ -325,7 +554,6 @@ export default function CreditsPage() {
       {/* ---- Graphiques ---- */}
       {filtered.length > 0 && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          {/* Top 10 débiteurs */}
           <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-200">
             <h3 className="mb-4 text-sm font-semibold text-gray-700">Top 10 débiteurs (FCFA)</h3>
             <ResponsiveContainer width="100%" height={220}>
@@ -339,7 +567,6 @@ export default function CreditsPage() {
             </ResponsiveContainer>
           </div>
 
-          {/* Distribution risque */}
           <div className="rounded-xl bg-white p-4 shadow-sm ring-1 ring-gray-200">
             <h3 className="mb-4 text-sm font-semibold text-gray-700">Répartition du risque crédit</h3>
             <ResponsiveContainer width="100%" height={220}>
@@ -461,6 +688,9 @@ export default function CreditsPage() {
           isPending={settle.isPending}
         />
       )}
+
+      {/* ---- Modal historique ---- */}
+      {showHistory && <CreditHistoryModal onClose={() => setShowHistory(false)} />}
     </div>
   );
 }

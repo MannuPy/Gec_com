@@ -107,3 +107,12 @@ export interface SaleSyncResult {
 export interface SaleSyncBatchResponse {
   results: SaleSyncResult[];
 }
+
+export interface RefundHistoryItem extends Sale {
+  admin_name: string | null;
+  rejection_reason: string | null;
+}
+
+export interface RefundHistoryParams {
+  status?: "AVOIR_EMIS" | "ANNULEE";
+}
