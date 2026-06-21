@@ -118,9 +118,34 @@ def register_model(
     mlflow_run_id: str | None = None,
     version: str | None = None,
     deactivate_previous: bool = True,
+    keep_versions: int = 3,
 ) -> MLModel:
+    """Enregistre un nouveau modele et desactive/purge les anciennes versions.
+
+    `keep_versions` : nombre de versions inactives a conserver (defaut 3).
+    Les versions plus anciennes sont supprimees pour eviter une croissance
+    indefinie de la table `ml_models` (voir 20-MACHINE-LEARNING.md).
+    """
     if deactivate_previous:
         MLModel.query.filter_by(model_type=model_type, is_active=True).update({"is_active": False})
+
+    # Purger les anciennes versions inactives au-dela de keep_versions
+    old_models = (
+        MLModel.query
+        .filter_by(model_type=model_type, is_active=False)
+        .order_by(MLModel.trained_at.desc())
+        .offset(keep_versions)
+        .all()
+    )
+    for old_model in old_models:
+        if old_model.artifact_path:
+            try:
+                import os as _os
+                if _os.path.exists(old_model.artifact_path):
+                    _os.remove(old_model.artifact_path)
+            except Exception:
+                pass
+        db.session.delete(old_model)
 
     model = MLModel(
         model_type=model_type,

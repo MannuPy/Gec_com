@@ -431,7 +431,24 @@ def clv_view():
             duree_mois = 1
 
         frequence_mensuelle = nb / duree_mois
-        duree_vie_estimee_mois = max(24, duree_mois * 2)
+
+        # Durée de vie estimée plafonnée par le nombre d'achats pour éviter
+        # des CLV irréalistes sur les clients à achat unique.
+        # 1 achat  → max  6 mois (confiance faible)
+        # 2 achats → max 12 mois
+        # 4 achats → max 24 mois (confiance pleine)
+        # Extrapolation : duree_mois * 2, plafonné à 36 mois globalement.
+        duree_vie_par_nb = nb * 6          # 6 mois de crédit par achat
+        duree_vie_historique = duree_mois * 2
+        duree_vie_estimee_mois = max(3, min(36, duree_vie_par_nb, duree_vie_historique))
+        # Au moins 3 mois pour ne pas générer un CLV nul sur de très petits paniers
+        if nb >= 4:
+            # Client bien établi : on accepte l'extrapolation historique jusqu'à 36 mois
+            duree_vie_estimee_mois = max(6, min(36, duree_vie_historique))
+
+        # Indice de confiance dans l'estimation (0-1)
+        data_confidence = round(min(1.0, nb / 5), 2)
+
         clv = panier_moyen * frequence_mensuelle * duree_vie_estimee_mois
 
         if clv < min_clv:
@@ -450,6 +467,7 @@ def clv_view():
             "frequence_mensuelle": round(frequence_mensuelle, 3),
             "clv_estime": round(clv, 2),
             "duree_vie_estimee_mois": duree_vie_estimee_mois,
+            "data_confidence": data_confidence,
         })
 
     clv_list.sort(key=lambda x: x["clv_estime"], reverse=True)

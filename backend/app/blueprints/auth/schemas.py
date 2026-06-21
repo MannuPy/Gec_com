@@ -1,5 +1,5 @@
 """Schemas marshmallow pour le blueprint `auth`."""
-from marshmallow import Schema, fields, validate
+from marshmallow import EXCLUDE, Schema, fields, validate
 
 
 class LoginSchema(Schema):
@@ -19,7 +19,14 @@ class RegisterSchema(Schema):
 
     `contact_email` est optionnel : a defaut, l'email de l'administrateur
     initial est utilise comme email de contact de l'entreprise.
+
+    `unknown = EXCLUDE` : le champ optionnel `registration_secret` envoye par
+    le client pour la verification cote route ne doit pas declencher une
+    ValidationError marshmallow.
     """
+
+    class Meta:
+        unknown = EXCLUDE
 
     company_name = fields.String(required=True, validate=validate.Length(min=2, max=150))
     contact_email = fields.Email(required=False, allow_none=True)

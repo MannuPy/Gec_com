@@ -37,6 +37,8 @@ class StockCountSchema(Schema):
     validated_by_id = fields.String(allow_none=True)
     validated_by_name = fields.Method("get_validated_by_name")
     validated_at = fields.DateTime(allow_none=True)
+    cancelled_by_id = fields.String(allow_none=True)
+    cancelled_by_name = fields.Method("get_cancelled_by_name")
     created_at = fields.DateTime()
     lines_count = fields.Method("get_lines_count")
     lines_with_variance = fields.Method("get_lines_with_variance")
@@ -49,6 +51,9 @@ class StockCountSchema(Schema):
 
     def get_validated_by_name(self, obj):
         return obj.validated_by.full_name if obj.validated_by else None
+
+    def get_cancelled_by_name(self, obj):
+        return obj.cancelled_by.full_name if obj.cancelled_by else None
 
     def get_lines_count(self, obj):
         return len(obj.lines)

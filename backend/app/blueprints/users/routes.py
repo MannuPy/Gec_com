@@ -72,16 +72,11 @@ def create_user():
         role_id=role.id,
         branch_id=payload.get("branch_id"),
         language=payload.get("language", "fr"),
-        # RF-05 : mot de passe attribue par un administrateur -> changement
-        # obligatoire a la 1re connexion.
         must_change_password=True,
     )
     user.set_password(payload["password"])
     db.session.add(user)
 
-    # Index global email -> schema (section 27.7) : le nouvel utilisateur appartient
-    # au tenant courant (schema resolu par le middleware `set_tenant_schema`
-    # a partir du claim JWT `company_schema` de l'appelant).
     company_schema = get_jwt().get("company_schema", current_app.config["DEFAULT_TENANT_SCHEMA"])
     register_user_index(email, company_schema)
 
@@ -115,6 +110,32 @@ def update_user(user_id: str):
 
     payload = UserUpdateSchema().load(request.get_json(silent=True) or {})
 
+    caller_id = get_jwt_identity()
+
+    # Securite : un admin ne peut pas se desactiver lui-meme (risque de lockout).
+    if "is_active" in payload and payload["is_active"] is False and user.id == caller_id:
+        raise validation_error(
+            "Vous ne pouvez pas desactiver votre propre compte. "
+            "Demandez a un autre administrateur de le faire.",
+            details={"user_id": user.id},
+        )
+
+    # Securite : verifier qu il restera au moins 1 admin actif apres la modification.
+    if "is_active" in payload and payload["is_active"] is False:
+        admin_role = Role.query.filter_by(name="ADMIN").first()
+        if admin_role and user.role_id == admin_role.id:
+            other_active_admins = User.query.filter(
+                User.role_id == admin_role.id,
+                User.is_active.is_(True),
+                User.id != user.id,
+            ).count()
+            if other_active_admins == 0:
+                raise validation_error(
+                    "Impossible de desactiver cet administrateur : "
+                    "il n'y aurait plus aucun administrateur actif dans le systeme.",
+                    details={"user_id": user.id},
+                )
+
     if "role_id" in payload:
         role = Role.query.get(payload["role_id"])
         if role is None:
@@ -127,8 +148,6 @@ def update_user(user_id: str):
 
     if "password" in payload:
         user.set_password(payload["password"])
-        # RF-05 : un mot de passe reinitialise par un administrateur doit
-        # etre change par l'utilisateur a sa prochaine connexion.
         user.must_change_password = True
 
     AuditLog.record(
@@ -152,10 +171,6 @@ def list_audit_logs():
     event_type = request.args.get("event_type")
     if event_type:
         query = query.filter(AuditLog.event_type == event_type)
-
-    user_id = request.args.get("user_id")
-    if user_id:
-        query = query.filter(AuditLog.user_id == user_id)
 
     page = request.args.get("page", default=1, type=int)
     per_page = min(request.args.get("per_page", default=50, type=int), 200)

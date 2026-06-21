@@ -96,15 +96,14 @@ def _forecast_seasonal_naive(series: pd.Series) -> tuple[float, float, str]:
 
 
 def _forecast_series(series: pd.Series) -> tuple[float, float, str]:
+    """Choisit et execute l'algorithme de prevision le plus adapte.
+
+    Retourne (forecast_7d, forecast_30d, algorithm_reel_utilise).
+    Le label reflète l'algorithme RÉELLEMENT exécuté, pas celui souhaité.
+    """
     if HAS_SKLEARN and len(series) >= MIN_HISTORY_DAYS:
-        algo = "SKLEARN_LINEAR_TREND"
-        if HAS_PROPHET:
-            algo = "PROPHET_SKLEARN_FALLBACK"
-        if HAS_XGBOOST and HAS_PROPHET:
-            algo = "PROPHET+XGBOOST_RESIDUALS"
-        f7, f30, _ = _forecast_sklearn(series)
-        return f7, f30, algo
-    return _forecast_seasonal_naive(series)
+        return _forecast_sklearn(series)  # retourne "SKLEARN_LINEAR_TREND"
+    return _forecast_seasonal_naive(series)  # retourne "SEASONAL_NAIVE"
 
 
 def train(months: int = 6) -> dict:

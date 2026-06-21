@@ -23,7 +23,22 @@ from app.utils.pdf import build_dashboard_report_pdf, build_credits_report_pdf, 
 @require_permission("reports:read")
 def dashboard_summary():
     """Indicateurs cles du jour : ventes, panier moyen, alertes de stock (RF-23)."""
+    from flask_jwt_extended import get_jwt
+    jwt_claims = get_jwt()
     branch_id = request.args.get("branch_id")
+
+    # Sécurité : un VENDEUR ne peut voir que sa propre branche.
+    # Si son branch_id JWT est renseigné, on le force même s'il passe un autre paramètre.
+    # Si son branch_id JWT est None (mauvaise config admin), on retourne une erreur explicite.
+    if jwt_claims.get("role") == "VENDEUR":
+        jwt_branch = jwt_claims.get("branch_id")
+        if not jwt_branch:
+            return jsonify({
+                "error": "NO_BRANCH_ASSIGNED",
+                "message": "Votre compte n'est rattache a aucune boutique. "
+                           "Contactez votre administrateur pour qu'il vous assigne une branche.",
+            }), 403
+        branch_id = jwt_branch
 
     today_start = datetime.combine(datetime.utcnow().date(), time.min)
 

@@ -1,14 +1,13 @@
 """
-Classification ABC/XYZ des produits (cf. 20-MACHINE-LEARNING.md §20.1).
+Classification ABC/XYZ des produits (cf. 20-MACHINE-LEARNING.md section 20.1).
 
-- **ABC** : classement par contribution cumulée au chiffre d'affaires
-  (A = 80% du CA cumulé, B = 15% suivants, C = les 5% restants).
-- **XYZ** : régularité de la demande, mesurée par le coefficient de
-  variation (écart-type / moyenne) de la demande hebdomadaire
-  (X = régulier CV < 0.5, Y = variable 0.5-1, Z = irrégulier CV > 1).
+- **ABC** : classement par contribution cumulee au chiffre d'affaires
+  (A = 80% du CA cumule, B = 15% suivants, C = les 5% restants).
+- **XYZ** : regularite de la demande, mesuree par le coefficient de
+  variation (ecart-type / moyenne) de la demande hebdomadaire
+  (X = regulier CV < 0.5, Y = variable 0.5-1, Z = irregulier CV > 1).
 
-Algorithme déterministe (règles pandas) — aucune dépendance ML lourde,
-fréquence de réentraînement hebdomadaire (tâche Celery `compute_abc_xyz_task`).
+Algorithme deterministe (regles pandas) — aucune dependance ML lourde.
 """
 from __future__ import annotations
 
@@ -41,20 +40,33 @@ def _load_sales_dataframe(months: int = 6) -> pd.DataFrame:
 
 
 def compute_abc_xyz(months: int = 6) -> pd.DataFrame:
-    """Retourne un DataFrame indexé par `product_id` avec colonnes
-    `revenue`, `abc_class`, `cv`, `xyz_class`."""
+    """Retourne un DataFrame indexe par `product_id` avec colonnes
+    `revenue`, `abc_class`, `cv`, `xyz_class`, `dead_stock`."""
     df = _load_sales_dataframe(months)
     products = {p.id: p for p in Product.query.filter_by(is_active=True).all()}
 
     if df.empty:
-        return pd.DataFrame(
-            columns=["product_id", "revenue", "abc_class", "cv", "xyz_class"]
+        # Tous les produits actifs sont stock mort
+        rows = []
+        for product_id, product in products.items():
+            rows.append({
+                "product_id": product_id,
+                "product_name": product.name,
+                "product_sku": product.sku,
+                "revenue": 0.0,
+                "abc_class": "C",
+                "cv": None,
+                "xyz_class": "Z",
+                "dead_stock": True,
+            })
+        return pd.DataFrame(rows) if rows else pd.DataFrame(
+            columns=["product_id", "product_name", "product_sku", "revenue", "abc_class", "cv", "xyz_class", "dead_stock"]
         )
 
     df["line_total"] = df["line_total"].astype(float)
     df["week"] = pd.to_datetime(df["created_at"]).dt.to_period("W").apply(lambda p: p.start_time)
 
-    # --- ABC : contribution au CA cumulé ---
+    # --- ABC : contribution au CA cumule ---
     revenue_by_product = df.groupby("product_id")["line_total"].sum().sort_values(ascending=False)
     total_revenue = revenue_by_product.sum()
     cumulative = revenue_by_product.cumsum() / total_revenue if total_revenue else revenue_by_product.cumsum()
@@ -86,17 +98,31 @@ def compute_abc_xyz(months: int = 6) -> pd.DataFrame:
             xyz = "Y"
         else:
             xyz = "Z"
-        rows.append(
-            {
+        rows.append({
+            "product_id": product_id,
+            "product_name": products[product_id].name if product_id in products else None,
+            "product_sku": products[product_id].sku if product_id in products else None,
+            "revenue": float(revenue_by_product[product_id]),
+            "abc_class": abc_classes[product_id],
+            "cv": None if cv == float("inf") else round(float(cv), 3),
+            "xyz_class": xyz,
+            "dead_stock": False,
+        })
+
+    # Produits actifs sans aucune vente sur la periode -> stock mort (classe CZ)
+    products_with_sales = set(revenue_by_product.index)
+    for product_id, product in products.items():
+        if product_id not in products_with_sales:
+            rows.append({
                 "product_id": product_id,
-                "product_name": products[product_id].name if product_id in products else None,
-                "product_sku": products[product_id].sku if product_id in products else None,
-                "revenue": float(revenue_by_product[product_id]),
-                "abc_class": abc_classes[product_id],
-                "cv": None if cv == float("inf") else round(float(cv), 3),
-                "xyz_class": xyz,
-            }
-        )
+                "product_name": product.name,
+                "product_sku": product.sku,
+                "revenue": 0.0,
+                "abc_class": "C",
+                "cv": None,
+                "xyz_class": "Z",
+                "dead_stock": True,
+            })
 
     return pd.DataFrame(rows)
 
@@ -110,6 +136,7 @@ def train(months: int = 6) -> dict:
         "n_class_a": float((df["abc_class"] == "A").sum()) if not df.empty else 0.0,
         "n_class_b": float((df["abc_class"] == "B").sum()) if not df.empty else 0.0,
         "n_class_c": float((df["abc_class"] == "C").sum()) if not df.empty else 0.0,
+        "n_dead_stock": float((df["dead_stock"] == True).sum()) if not df.empty else 0.0,
     }
 
     with MLflowRun(MODEL_TYPE) as run:
@@ -135,6 +162,7 @@ def train(months: int = 6) -> dict:
                 "cv": row["cv"],
                 "xyz_class": row["xyz_class"],
                 "combined_class": f"{row['abc_class']}{row['xyz_class']}",
+                "dead_stock": bool(row.get("dead_stock", False)),
             },
         }
         for _, row in df.iterrows()

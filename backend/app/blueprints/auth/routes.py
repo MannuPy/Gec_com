@@ -87,7 +87,34 @@ def login():
 
 @auth_bp.post("/register")
 def register():
-    """Inscription d'une nouvelle entreprise cliente (RF-01)."""
+    """Inscription d'une nouvelle entreprise cliente (RF-01).
+
+    Protegee par la variable d'environnement ALLOW_REGISTRATION.
+    En production (PythonAnywhere), cette variable doit etre absente ou valoir '0'
+    pour bloquer la creation publique de nouveaux tenants.
+    Un secret optionnel REGISTRATION_SECRET peut etre exige dans le payload.
+    """
+    import os
+    allow = os.environ.get("ALLOW_REGISTRATION", "0").lower()
+    if allow not in ("1", "true", "yes"):
+        raise ApiError(
+            "REGISTRATION_DISABLED",
+            "L'inscription publique est desactivee sur cette instance. "
+            "Contactez l'administrateur systeme.",
+            status_code=403,
+        )
+
+    # Verification optionnelle d'un secret d'invitation
+    registration_secret = os.environ.get("REGISTRATION_SECRET", "")
+    if registration_secret:
+        body = request.get_json(silent=True) or {}
+        if body.get("registration_secret") != registration_secret:
+            raise ApiError(
+                "INVALID_REGISTRATION_SECRET",
+                "Secret d'invitation invalide ou manquant.",
+                status_code=403,
+            )
+
     payload = RegisterSchema().load(request.get_json(silent=True) or {})
 
     admin_email = payload["admin_email"].lower()
@@ -167,34 +194,4 @@ def logout():
 @jwt_required()
 def me():
     """Retourne le profil de l'utilisateur authentifie."""
-    user = User.query.get(get_jwt_identity())
-    if user is None:
-        raise ApiError("NOT_FOUND", "Utilisateur introuvable.", status_code=404)
-    return jsonify(_serialize_user(user))
-
-
-@auth_bp.post("/change-password")
-@jwt_required()
-def change_password():
-    """Change le mot de passe de l'utilisateur authentifie (RF-05)."""
-    user = User.query.get(get_jwt_identity())
-    if user is None:
-        raise ApiError("NOT_FOUND", "Utilisateur introuvable.", status_code=404)
-
-    payload = ChangePasswordSchema().load(request.get_json(silent=True) or {})
-
-    if not user.check_password(payload["current_password"]):
-        raise ApiError("INVALID_CREDENTIALS", "Mot de passe actuel incorrect.", status_code=401)
-
-    user.set_password(payload["new_password"])
-    user.must_change_password = False
-
-    AuditLog.record(
-        event_type="PASSWORD_CHANGED",
-        user_id=user.id,
-        entity_type="User",
-        entity_id=user.id,
-        description="Mot de passe modifie.",
-    )
-    db.session.commit()
-    return jsonify({"message": "Mot de passe modifie avec succes."}), 200
+    user = U
