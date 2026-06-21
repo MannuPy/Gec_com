@@ -1344,4 +1344,43 @@ function KpiCard({ label, value, accent = false }: { label: string; value: strin
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="mb-3 text-sm font-semibold
+      <h3 className="mb-3 text-sm font-semibold text-primary-dark">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function ChartSkeleton() {
+  return (
+    <div className="flex h-[260px] items-center justify-center gap-2 text-muted">
+      <Loader2 className="h-5 w-5 animate-spin" />
+      <span className="text-sm">Chargement du graphique…</span>
+    </div>
+  );
+}
+
+interface QueryStateProps<T> {
+  query: { isLoading: boolean; isError: boolean; error: unknown; data: T | undefined };
+  errorMessage: string;
+  children: (data: T) => React.ReactNode;
+}
+
+function QueryState<T>({ query, errorMessage, children }: QueryStateProps<T>) {
+  if (query.isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-muted">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Chargement...
+      </div>
+    );
+  }
+  if (query.isError) {
+    return (
+      <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+        {getApiErrorMessage(query.error, errorMessage)}
+      </div>
+    );
+  }
+  if (!query.data) return null;
+  return <>{children(query.data)}</>;
+}

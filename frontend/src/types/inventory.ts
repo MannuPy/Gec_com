@@ -57,5 +57,6 @@ export interface StockCountLineUpdate {
   counted_quantity: number;
   comment?: string;
 }
-
-exp
+export interface StockCountLinesUpdatePayload {
+  lines: StockCountLineUpdate[];
+}

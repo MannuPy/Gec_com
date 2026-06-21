@@ -135,9 +135,10 @@ export interface AbcXyzItem {
   product_name: string;
   revenue: number;
   abc_class: AbcClass;
-  cv: number;
+  cv: number | null;
   xyz_class: XyzClass;
   combined_class: string;
+  dead_stock: boolean;
 }
 
 export interface AbcXyzParams {
@@ -243,6 +244,7 @@ export interface ClvItem {
   frequence_mensuelle: number;
   clv_estime: number;
   duree_vie_estimee_mois: number;
+  data_confidence: number | null;
 }
 
 export interface ClvStats {

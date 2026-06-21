@@ -485,4 +485,47 @@ function CountDetailModal({ countId, canWrite, onClose, onChanged }: CountDetail
                   if (window.confirm("Annuler cette session d'inventaire ? Aucun ajustement de stock ne sera effectué.")) {
                     cancelMutation.mutate();
                   }
-       
+                }}
+              >
+                {cancelMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Ban className="h-4 w-4" />
+                )}
+                Annuler la session
+              </button>
+
+              {/* Enregistrer + Valider — à droite */}
+              <div className="flex gap-2">
+                <button type="button" className="btn-secondary" disabled={saveMutation.isPending} onClick={handleSave}>
+                  {saveMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Enregistrer les quantités
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={validateMutation.isPending}
+                  onClick={() => validateMutation.mutate()}
+                >
+                  {validateMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <ClipboardCheck className="h-4 w-4" />
+                  )}
+                  Valider la session
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Affichage si session annulée */}
+          {count?.status === "ANNULE" && (
+            <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 border-t border-surface mt-3">
+              Session annulée{count.cancelled_by_name ? ` par ${count.cancelled_by_name}` : ""}. Aucun ajustement de stock effectué.
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
