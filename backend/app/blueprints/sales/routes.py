@@ -458,8 +458,7 @@ def list_credits_history():
     cet endpoint inclut aussi les clients entierement soldes.
     """
     subq_has_payment = (
-        CustomerPayment.query
-        .with_entities(CustomerPayment.customer_id)
+        db.session.query(CustomerPayment.customer_id)
         .distinct()
         .subquery()
     )

@@ -101,7 +101,11 @@ def build_sale_receipt_pdf(sale) -> io.BytesIO:
     if sale.customer:
         info_rows.append("Client : " + sale.customer.full_name)
     if sale.refund_of_sale_id:
-        info_rows.append("Avoir sur vente : " + sale.refund_of_sale_id)
+        from app.extensions import db as _db
+        from app.models.sales import Sale as _Sale
+        orig = _db.session.get(_Sale, sale.refund_of_sale_id)
+        orig_ref = orig.reference if orig else sale.refund_of_sale_id
+        info_rows.append("Avoir sur vente : " + orig_ref)
 
     for row in info_rows:
         c.drawString(x_left, y, row)

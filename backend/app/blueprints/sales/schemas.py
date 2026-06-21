@@ -58,7 +58,7 @@ class SaleCreateSchema(Schema):
     branch_id = fields.String(required=True)
     customer_id = fields.String(allow_none=True, load_default=None)
     payment_type = fields.String(load_default="CASH", validate=validate.OneOf(["CASH", "CREDIT"]))
-    discount_rate = fields.Integer(load_default=0, validate=validate.Range(min=0, max=100))
+    discount_rate = fields.Integer(load_default=0, validate=validate.OneOf([0, 5, 10, 15, 20]))
     lines = fields.List(
         fields.Nested(SaleLineCreateSchema), required=True, validate=validate.Length(min=1)
     )
@@ -74,7 +74,7 @@ class SaleSyncItemSchema(Schema):
     branch_id = fields.String(required=True)
     customer_id = fields.String(allow_none=True, load_default=None)
     payment_type = fields.String(load_default="CASH", validate=validate.OneOf(["CASH", "CREDIT"]))
-    discount_rate = fields.Integer(load_default=0, validate=validate.Range(min=0, max=100))
+    discount_rate = fields.Integer(load_default=0, validate=validate.OneOf([0, 5, 10, 15, 20]))
     created_at_local = fields.DateTime(allow_none=True, load_default=None)
     lines = fields.List(
         fields.Nested(SaleSyncLineSchema), required=True, validate=validate.Length(min=1)
@@ -117,10 +117,10 @@ class SaleLineSchema(Schema):
     line_total = fields.Decimal(as_string=True)
 
     def get_product_sku(self, obj):
-        return obj.product.sku
+        return obj.product.sku if obj.product else ""
 
     def get_product_name(self, obj):
-        return obj.product.name
+        return obj.product.name if obj.product else "Produit supprimé"
 
 
 class SaleSchema(Schema):

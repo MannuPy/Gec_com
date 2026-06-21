@@ -218,8 +218,8 @@ export default function POSPage() {
     if (paymentType === "CREDIT" && !customerId) {
       return "Une vente a credit necessite un client identifie (RG-26).";
     }
-    if (discountRate < 0 || discountRate > 100) {
-      return "Le taux de remise doit être compris entre 0 et 100.";
+    if (![0, 5, 10, 15, 20].includes(discountRate)) {
+      return "Le taux de remise doit être 0, 5, 10, 15 ou 20%.";
     }
     return null;
   };
@@ -594,15 +594,15 @@ export default function POSPage() {
 
             <div>
               <label className="label">Remise (%)</label>
-              <input
-                type="number"
+              <select
                 className="input"
-                min={0}
-                max={100}
-                step={1}
                 value={discountRate}
-                onChange={(e) => setDiscountRate(Math.max(0, Math.min(100, Number(e.target.value))))}
-              />
+                onChange={(e) => setDiscountRate(Number(e.target.value))}
+              >
+                {[0, 5, 10, 15, 20].map((v) => (
+                  <option key={v} value={v}>{v}%</option>
+                ))}
+              </select>
             </div>
 
             <div>
