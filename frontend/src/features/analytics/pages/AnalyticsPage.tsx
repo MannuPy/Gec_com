@@ -709,21 +709,28 @@ export default function AnalyticsPage() {
                         <th className="text-right">Coeff. variation</th>
                         <th>Classe XYZ</th>
                         <th>Classe combinée</th>
+                        <th>Stock mort</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.items.length === 0 && (
-                        <tr><td colSpan={7} className="text-center text-muted">Aucune donnée de classification disponible.</td></tr>
+                        <tr><td colSpan={8} className="text-center text-muted">Aucune donnée de classification disponible.</td></tr>
                       )}
                       {data.items.map((item) => (
-                        <tr key={item.product_id}>
+                        <tr key={item.product_id} className={item.dead_stock ? "bg-red-50/40" : ""}>
                           <td className="font-mono text-xs text-muted">{item.product_sku}</td>
                           <td className="font-medium text-primary-dark">{item.product_name}</td>
                           <td className="text-right">{formatCurrency(item.revenue)}</td>
                           <td><span className="badge badge-info">{item.abc_class}</span></td>
-                          <td className="text-right">{item.cv.toFixed(2)}</td>
+                          <td className="text-right">{item.cv != null ? item.cv.toFixed(2) : "—"}</td>
                           <td><span className="badge badge-info">{item.xyz_class}</span></td>
                           <td className="font-semibold">{item.combined_class}</td>
+                          <td>
+                            {item.dead_stock
+                              ? <span className="badge badge-danger">⚠ Mort</span>
+                              : <span className="text-xs text-muted">—</span>
+                            }
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1183,13 +1190,14 @@ export default function AnalyticsPage() {
                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Panier moy.</th>
                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Durée rel.</th>
                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Fréq./mois</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">Confiance</th>
                         <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted">CLV estimée</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.items.length === 0 && (
                         <tr>
-                          <td colSpan={8} className="py-8 text-center text-sm text-muted">
+                          <td colSpan={9} className="py-8 text-center text-sm text-muted">
                             Aucune donnée disponible.
                           </td>
                         </tr>
@@ -1208,6 +1216,13 @@ export default function AnalyticsPage() {
                           <td className="px-4 py-3 text-right">{formatCurrency(item.panier_moyen)}</td>
                           <td className="px-4 py-3 text-right text-muted">{item.duree_mois} mois</td>
                           <td className="px-4 py-3 text-right text-muted">{item.frequence_mensuelle.toFixed(2)}</td>
+                          <td className="px-4 py-3 text-right">
+                            {item.data_confidence != null ? (
+                              <span className={`text-xs font-medium ${item.data_confidence >= 0.8 ? "text-green-600" : item.data_confidence >= 0.4 ? "text-amber-600" : "text-red-500"}`}>
+                                {Math.round(item.data_confidence * 100)} %
+                              </span>
+                            ) : "—"}
+                          </td>
                           <td className="px-4 py-3 text-right">
                             <span className="font-semibold text-indigo-700">
                               {formatCurrency(item.clv_estime)}
@@ -1329,43 +1344,4 @@ function KpiCard({ label, value, accent = false }: { label: string; value: strin
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
-      <h3 className="mb-3 text-sm font-semibold text-primary-dark">{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-function ChartSkeleton() {
-  return (
-    <div className="flex h-[260px] items-center justify-center gap-2 text-muted">
-      <Loader2 className="h-5 w-5 animate-spin" />
-      <span className="text-sm">Chargement du graphique…</span>
-    </div>
-  );
-}
-
-interface QueryStateProps<T> {
-  query: { isLoading: boolean; isError: boolean; error: unknown; data: T | undefined };
-  errorMessage: string;
-  children: (data: T) => React.ReactNode;
-}
-
-function QueryState<T>({ query, errorMessage, children }: QueryStateProps<T>) {
-  if (query.isLoading) {
-    return (
-      <div className="flex items-center gap-2 text-muted">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Chargement...
-      </div>
-    );
-  }
-  if (query.isError) {
-    return (
-      <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
-        {getApiErrorMessage(query.error, errorMessage)}
-      </div>
-    );
-  }
-  if (!query.data) return null;
-  return <>{children(query.data)}</>;
-}
+      <h3 className="mb-3 text-sm font-semibold

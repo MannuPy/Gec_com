@@ -3,7 +3,7 @@
  * Cf. backend/app/blueprints/inventory/schemas.py et routes.py.
  */
 
-export const STOCK_COUNT_STATUSES = ["EN_COURS", "VALIDE"] as const;
+export const STOCK_COUNT_STATUSES = ["EN_COURS", "VALIDE", "ANNULE"] as const;
 export type StockCountStatus = (typeof STOCK_COUNT_STATUSES)[number];
 
 export interface StockCountLine {
@@ -29,6 +29,8 @@ export interface StockCount {
   validated_by_id: string | null;
   validated_by_name: string | null;
   validated_at: string | null;
+  cancelled_by_id: string | null;
+  cancelled_by_name: string | null;
   created_at: string;
   lines_count: number;
   lines_with_variance: number;
@@ -56,6 +58,4 @@ export interface StockCountLineUpdate {
   comment?: string;
 }
 
-export interface StockCountLinesUpdatePayload {
-  lines: StockCountLineUpdate[];
-}
+exp

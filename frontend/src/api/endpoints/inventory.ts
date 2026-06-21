@@ -30,4 +30,8 @@ export const inventoryApi = {
   /** RF-23 : valide la session et génère les ajustements de stock. */
   validate: (countId: string) =>
     apiClient.post<StockCountDetail>(`/inventory/counts/${countId}/validate`).then((r) => r.data),
+
+  /** Annule (abandonne) une session EN_COURS sans ajustement de stock. */
+  cancel: (countId: string) =>
+    apiClient.post<StockCountDetail>(`/inventory/counts/${countId}/cancel`).then((r) => r.data),
 };

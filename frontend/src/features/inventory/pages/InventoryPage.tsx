@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ChevronRight, ClipboardCheck, Loader2, Plus } from "lucide-react";
+import { Ban, ChevronLeft, ChevronRight, ClipboardCheck, Loader2, Plus } from "lucide-react";
 
 import { inventoryApi } from "@/api/endpoints/inventory";
 import { productsApi } from "@/api/endpoints/products";
@@ -21,11 +21,13 @@ const PER_PAGE = 20;
 const STATUS_LABELS: Record<StockCountStatus, string> = {
   EN_COURS: "En cours",
   VALIDE: "Validée",
+  ANNULE: "Annulée",
 };
 
 const STATUS_BADGES: Record<StockCountStatus, string> = {
   EN_COURS: "badge-warning",
   VALIDE: "badge-success",
+  ANNULE: "badge-danger",
 };
 
 /**
@@ -339,6 +341,16 @@ function CountDetailModal({ countId, canWrite, onClose, onChanged }: CountDetail
     onError: (error) => setFormError(getApiErrorMessage(error, "Impossible de valider la session d'inventaire.")),
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: () => inventoryApi.cancel(countId),
+    onSuccess: () => {
+      setFormError(null);
+      detailQuery.refetch();
+      onChanged();
+    },
+    onError: (error) => setFormError(getApiErrorMessage(error, "Impossible d'annuler la session d'inventaire.")),
+  });
+
   const count = detailQuery.data;
   const isEditable = count?.status === "EN_COURS";
 
@@ -463,28 +475,14 @@ function CountDetailModal({ countId, canWrite, onClose, onChanged }: CountDetail
           {formError && <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</div>}
 
           {canWrite && isEditable && (
-            <div className="flex justify-end gap-2 border-t border-surface pt-3">
-              <button type="button" className="btn-secondary" disabled={saveMutation.isPending} onClick={handleSave}>
-                {saveMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Enregistrer les quantités
-              </button>
+            <div className="flex flex-wrap justify-between gap-2 border-t border-surface pt-3">
+              {/* Bouton annulation — à gauche */}
               <button
                 type="button"
-                className="btn-primary"
-                disabled={validateMutation.isPending}
-                onClick={() => validateMutation.mutate()}
-              >
-                {validateMutation.isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ClipboardCheck className="h-4 w-4" />
-                )}
-                Valider la session
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </Modal>
-  );
-}
+                className="btn-ghost text-red-600 hover:bg-red-50"
+                disabled={cancelMutation.isPending}
+                onClick={() => {
+                  if (window.confirm("Annuler cette session d'inventaire ? Aucun ajustement de stock ne sera effectué.")) {
+                    cancelMutation.mutate();
+                  }
+       
