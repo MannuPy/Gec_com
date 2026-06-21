@@ -194,4 +194,34 @@ def logout():
 @jwt_required()
 def me():
     """Retourne le profil de l'utilisateur authentifie."""
-    user = U
+    user = User.query.get(get_jwt_identity())
+    if user is None:
+        raise ApiError("NOT_FOUND", "Utilisateur introuvable.", status_code=404)
+    return jsonify(_serialize_user(user))
+
+
+@auth_bp.post("/change-password")
+@jwt_required()
+def change_password():
+    """Change le mot de passe de l'utilisateur authentifie (RF-05)."""
+    user = User.query.get(get_jwt_identity())
+    if user is None:
+        raise ApiError("NOT_FOUND", "Utilisateur introuvable.", status_code=404)
+
+    payload = ChangePasswordSchema().load(request.get_json(silent=True) or {})
+
+    if not user.check_password(payload["current_password"]):
+        raise ApiError("INVALID_CREDENTIALS", "Mot de passe actuel incorrect.", status_code=401)
+
+    user.set_password(payload["new_password"])
+    user.must_change_password = False
+
+    AuditLog.record(
+        event_type="PASSWORD_CHANGED",
+        user_id=user.id,
+        entity_type="User",
+        entity_id=user.id,
+        description="Mot de passe modifie.",
+    )
+    db.session.commit()
+    return jsonify({"message": "Mot de passe modifie avec succes."}), 200

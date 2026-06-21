@@ -203,7 +203,6 @@ def validate_reception(reception_id: str):
 
     reception.status = ReceptionStatus.VALIDEE.value
     reception.received_at = datetime.utcnow()
-    reception.received_by_id = get_jwt_identity()
 
     AuditLog.record(
         event_type="RECEPTION_VALIDATED",

@@ -4,7 +4,7 @@ Cf. 17-API-REST.md section Sales et 04-REGLES-METIER.md (RG-20 a RG-27). La
 logique metier est deleguee a `app.services.sale_service`.
 """
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from flask import jsonify, request
 from flask_jwt_extended import get_jwt_identity
@@ -24,7 +24,17 @@ from app.blueprints.sales.schemas import (
     SaleSyncResultSchema,
 )
 from app.extensions import db
-from app.models import AuditLog, Customer, CustomerPayment, CustomerPaymentStatus, Product, Sale, SaleLine, SaleStatus
+from app.models import (
+    AuditLog,
+    Customer,
+    CustomerPayment,
+    CustomerPaymentStatus,
+    PaymentType,
+    Product,
+    Sale,
+    SaleLine,
+    SaleStatus,
+)
 from app.services.sale_service import (
     approve_refund,
     create_refund,
@@ -33,7 +43,7 @@ from app.services.sale_service import (
     sync_offline_sales,
 )
 from app.utils.decorators import require_permission
-from app.utils.errors import conflict, not_found
+from app.utils.errors import conflict, not_found, validation_error
 from app.utils.pdf import build_sale_receipt_pdf, pdf_response
 
 sale_schema = SaleSchema()
@@ -108,7 +118,6 @@ def sync_sales_route():
     payload = SaleSyncBatchSchema().load(request.get_json(silent=True) or {})
     results = sync_offline_sales(payload["sales"], cashier_id=get_jwt_identity())
     return jsonify({"results": SaleSyncResultSchema(many=True).dump(results)}), 200
-
 
 
 @sales_bp.get("/<string:sale_id>")
@@ -265,6 +274,7 @@ def create_customer_payment(customer_id: str):
         event_type="CUSTOMER_PAYMENT_CREATED",
         user_id=get_jwt_identity(),
         entity_type="CustomerPayment",
+        entity_id=str(payment.id),
         description=f"Echeance de remboursement de {payment.amount} creee pour {customer.full_name}",
     )
     db.session.commit()
@@ -323,9 +333,8 @@ def update_customer_payment(customer_id: str, payment_id: str):
 @require_permission('sales:refund')
 def list_pending_refunds():
     """Liste les avoirs en attente d'approbation (admin)."""
-    from app.models import SaleStatus as _SS
     sales = (
-        Sale.query.filter(Sale.status == _SS.EN_ATTENTE_APPROBATION.value)
+        Sale.query.filter(Sale.status == SaleStatus.EN_ATTENTE_APPROBATION.value)
         .order_by(Sale.created_at.desc())
         .all()
     )
@@ -363,16 +372,28 @@ def reject_refund_route(sale_id: str):
 @sales_bp.get('/credits')
 @require_permission('customers:read', 'sales:read')
 def list_credits():
-    """Liste les clients ayant un encours de credit non nul (credit_balance > 0)."""
-    from decimal import Decimal as _D
-    query = Customer.query
+    """Liste les clients ayant un encours de credit non nul (credit_balance > 0).
+
+    Si `branch_id` est fourni, filtre les clients ayant au moins une vente
+    a credit VALIDEE dans ce site (RG-26).
+    """
+    query = Customer.query.filter(Customer.credit_balance > Decimal('0'))
 
     branch_id = request.args.get('branch_id')
     if branch_id:
-        # Filtrer par site via les ventes a credit de ce client
-        query = query.filter(Customer.credit_balance > _D('0'))
-    else:
-        query = query.filter(Customer.credit_balance > _D('0'))
+        # Customer n'a pas de branch_id direct — on passe par les ventes a credit.
+        credit_customer_ids = (
+            db.session.query(Sale.customer_id)
+            .filter(
+                Sale.branch_id == branch_id,
+                Sale.payment_type == PaymentType.CREDIT.value,
+                Sale.status == SaleStatus.VALIDEE.value,
+                Sale.customer_id.isnot(None),
+            )
+            .distinct()
+            .subquery()
+        )
+        query = query.filter(Customer.id.in_(credit_customer_ids))
 
     customer_type = request.args.get('customer_type')
     if customer_type:
@@ -389,26 +410,23 @@ def settle_credit(customer_id: str):
 
     Payload : { amount: string (Decimal), note?: string }
     """
-    from decimal import Decimal as _D, InvalidOperation
     customer = Customer.query.get(customer_id)
     if customer is None:
         raise not_found('Client', customer_id)
 
     payload = request.get_json(silent=True) or {}
     try:
-        amount = _D(str(payload.get('amount', '0')))
+        amount = Decimal(str(payload.get('amount', '0')))
     except InvalidOperation:
-        from app.utils.errors import validation_error
         raise validation_error('Montant invalide.', details={'amount': payload.get('amount')})
 
     if amount <= 0:
-        from app.utils.errors import validation_error
         raise validation_error('Le montant doit etre positif.', details={'amount': str(amount)})
 
     if amount > customer.credit_balance:
         amount = customer.credit_balance
 
-    customer.credit_balance = max(_D('0'), customer.credit_balance - amount)
+    customer.credit_balance = max(Decimal('0'), customer.credit_balance - amount)
 
     AuditLog.record(
         event_type='CREDIT_SETTLED',
@@ -439,8 +457,6 @@ def list_credits_history():
     Contrairement a /credits qui ne liste que les clients avec encours > 0,
     cet endpoint inclut aussi les clients entierement soldes.
     """
-    from decimal import Decimal as _D
-
     subq_has_payment = (
         CustomerPayment.query
         .with_entities(CustomerPayment.customer_id)
@@ -451,7 +467,7 @@ def list_credits_history():
         Customer.query
         .filter(
             or_(
-                Customer.credit_balance > _D('0'),
+                Customer.credit_balance > Decimal('0'),
                 Customer.id.in_(subq_has_payment)
             )
         )
@@ -477,12 +493,12 @@ def list_credits_history():
     for c in customers:
         pmts = payments_by_customer.get(c.id, [])
         paid_pmts = [p for p in pmts if p.status == CustomerPaymentStatus.PAID.value]
-        total_paid = sum(p.amount for p in paid_pmts) if paid_pmts else _D('0')
+        total_paid = sum(p.amount for p in paid_pmts) if paid_pmts else Decimal('0')
         balance = c.credit_balance
 
-        if balance == _D('0') and paid_pmts:
+        if balance == Decimal('0') and paid_pmts:
             credit_status = 'SOLDE'
-        elif balance > _D('0') and paid_pmts:
+        elif balance > Decimal('0') and paid_pmts:
             credit_status = 'EN_COURS'
         else:
             credit_status = 'NON_COMMENCE'
