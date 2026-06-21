@@ -8,7 +8,7 @@ from app.models.base import UUIDPrimaryKeyMixin, TimestampMixin
 class StockCountStatus(str, enum.Enum):
     EN_COURS = "EN_COURS"
     VALIDE = "VALIDE"
-    ANNULE = "ANNULE"   # Session abandonnée sans ajustement de stock
+    ANNULE = "ANNULE"   # Session abandonnee sans ajustement de stock
 
 
 class StockCount(db.Model, UUIDPrimaryKeyMixin, TimestampMixin):
@@ -22,6 +22,7 @@ class StockCount(db.Model, UUIDPrimaryKeyMixin, TimestampMixin):
     validated_by_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
     validated_at = db.Column(db.DateTime, nullable=True)
     cancelled_by_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
+    cancelled_at = db.Column(db.DateTime, nullable=True)
 
     branch = db.relationship("Branch", lazy="joined")
     created_by = db.relationship("User", foreign_keys=[created_by_id], lazy="joined")
