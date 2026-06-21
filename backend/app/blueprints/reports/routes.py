@@ -27,9 +27,6 @@ def dashboard_summary():
     jwt_claims = get_jwt()
     branch_id = request.args.get("branch_id")
 
-    # Sécurité : un VENDEUR ne peut voir que sa propre branche.
-    # Si son branch_id JWT est renseigné, on le force même s'il passe un autre paramètre.
-    # Si son branch_id JWT est None (mauvaise config admin), on retourne une erreur explicite.
     if jwt_claims.get("role") == "VENDEUR":
         jwt_branch = jwt_claims.get("branch_id")
         if not jwt_branch:
@@ -62,7 +59,6 @@ def dashboard_summary():
         low_stock_query = low_stock_query.filter(Stock.branch_id == branch_id)
     low_stock = low_stock_query.count()
 
-    # Top produits du jour (par quantite vendue, pour le tableau de bord RF-23)
     top_products = top_products_for_period(branch_id=branch_id, days=1, limit=5)
 
     return jsonify({
@@ -373,14 +369,36 @@ def export_credits_excel():
 @reports_bp.get("/credits/pdf")
 @require_permission("reports:read")
 def export_credits_pdf():
-    from app.models.sales import CustomerPayment, CustomerPaymentStatus
-    payments = CustomerPayment.query.filter(
-        CustomerPayment.status.in_([
-            CustomerPaymentStatus.PENDING.value,
-            CustomerPaymentStatus.LATE.value,
-        ])
-    ).order_by(CustomerPayment.due_date).all()
-    pdf_bytes = build_credits_report_pdf(payments)
+    """Exporte le rapport PDF des encours clients (credit_balance > 0).
+
+    build_credits_report_pdf attend des objets Customer (credit_balance,
+    credit_limit, full_name, phone, customer_type) — on interroge donc
+    Customer directement, et non CustomerPayment.
+    """
+    from decimal import Decimal as _D
+    from app.models.sales import Customer, Sale, PaymentType, SaleStatus
+
+    branch_id = request.args.get("branch_id")
+
+    query = Customer.query.filter(Customer.credit_balance > _D("0"))
+
+    if branch_id:
+        # Pas de branch_id direct sur Customer — filtrer via les ventes a credit.
+        credit_customer_ids = (
+            db.session.query(Sale.customer_id)
+            .filter(
+                Sale.branch_id == branch_id,
+                Sale.payment_type == PaymentType.CREDIT.value,
+                Sale.status == SaleStatus.VALIDEE.value,
+                Sale.customer_id.isnot(None),
+            )
+            .distinct()
+            .subquery()
+        )
+        query = query.filter(Customer.id.in_(credit_customer_ids))
+
+    customers = query.order_by(Customer.credit_balance.desc()).all()
+    pdf_bytes = build_credits_report_pdf(customers, branch_id=branch_id)
     return pdf_response(pdf_bytes, "rapport-credits.pdf")
 
 
@@ -419,13 +437,11 @@ def compta_summary():
     dt_debut = datetime.combine(date_debut, time.min)
     dt_fin = datetime.combine(date_fin, time(23, 59, 59))
 
-    # Succursales disponibles
     branches_list = [
         {"id": b.id, "name": b.name}
         for b in Branch.query.order_by(Branch.name).all()
     ]
 
-    # RECETTES : ventes validees
     sales_q = Sale.query.filter(
         Sale.status == SaleStatus.VALIDEE.value,
         Sale.created_at >= dt_debut,
@@ -440,7 +456,6 @@ def compta_summary():
     recettes_total = recettes_cash + recettes_credit
     nb_ventes = len(sales)
 
-    # DEPENSES : receptions fournisseurs validees
     recept_q = SupplierReception.query.filter(
         SupplierReception.status == ReceptionStatus.VALIDEE.value,
         SupplierReception.received_at >= dt_debut,
@@ -458,7 +473,6 @@ def compta_summary():
 
     balance = recettes_total - depenses_total
 
-    # EVOLUTION JOURNALIERE
     from collections import defaultdict
     day_recettes = defaultdict(float)
     day_depenses = defaultdict(float)
@@ -484,7 +498,6 @@ def compta_summary():
         for d in all_dates
     ], key=lambda x: x["date"])
 
-    # JOURNAL DE CAISSE (avec solde cumulatif)
     journal_entries = []
 
     for s in sales:
@@ -612,7 +625,6 @@ def branches_compare():
             "top_product": top_product,
         })
 
-    # Radar: normalise chaque métrique 0-100
     metrics = ["ca", "nb_ventes", "panier_moyen", "marge_pct", "nb_clients_actifs"]
     metric_labels = {
         "ca": "CA",
@@ -629,7 +641,6 @@ def branches_compare():
             row[k["branch_name"]] = round(k[metric] / maxima * 100, 1)
         radar_data.append(row)
 
-    # Evolution mensuelle CA par succursale
     evolution_map: dict = {}
     for branch in branches:
         monthly = (
