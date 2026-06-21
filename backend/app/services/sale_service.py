@@ -471,7 +471,12 @@ def sync_offline_sales(items: list, cashier_id: str) -> list:
     for item in items:
         try:
             result = sync_offline_sale(item, cashier_id)
-            results.append({"offline_uuid": item.get("offline_uuid"), "status": "ok", **result})
+            results.append(result)
         except Exception as exc:
-            results.append({"offline_uuid": item.get("offline_uuid"), "status": "error", "error": str(exc)})
+            results.append({
+                "offline_uuid": item.get("offline_uuid"),
+                "status": "ERREUR",
+                "sale_id": None,
+                "message": str(exc),
+            })
     return results

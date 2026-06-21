@@ -111,13 +111,17 @@ export default function SuppliersPage() {
     });
   };
 
+  const [validateError, setValidateError] = useState<string | null>(null);
+
   const validateMutation = useMutation({
     mutationFn: (id: string) => suppliersApi.receptions.validate(id),
     onSuccess: (reception) => {
+      setValidateError(null);
       queryClient.invalidateQueries({ queryKey: ["receptions"] });
       queryClient.invalidateQueries({ queryKey: ["stock"] });
       setDetailReception(reception);
     },
+    onError: (error) => setValidateError(getApiErrorMessage(error, "Impossible de valider la réception.")),
   });
 
   const suppliers = suppliersQuery.data ?? [];
@@ -432,13 +436,16 @@ export default function SuppliersPage() {
               Total : {formatCurrency(detailReception.total_amount)}
             </div>
 
+            {validateError && (
+              <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{validateError}</div>
+            )}
             {detailReception.status === "BROUILLON" && canWriteReceptions && (
               <div className="flex justify-end gap-2 border-t border-surface pt-3">
                 <button
                   type="button"
                   className="btn-primary"
                   disabled={validateMutation.isPending}
-                  onClick={() => validateMutation.mutate(detailReception.id)}
+                  onClick={() => { setValidateError(null); validateMutation.mutate(detailReception.id); }}
                 >
                   {validateMutation.isPending ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -673,7 +680,7 @@ function ReceptionCreateModal({ suppliers, branches, onClose, onSuccess }: Recep
             ) : (
               <CheckCircle2 className="h-4 w-4" />
             )}
-            Valider la réception
+            Créer le bon de réception
           </button>
         </div>
       </div>

@@ -90,8 +90,8 @@ class SaleSyncBatchSchema(Schema):
 class SaleSyncResultSchema(Schema):
     offline_uuid = fields.String()
     status = fields.String()
-    sale_id = fields.String(allow_none=True)
-    message = fields.String(allow_none=True)
+    sale_id = fields.String(allow_none=True, dump_default=None)
+    message = fields.String(allow_none=True, dump_default=None)
 
 
 class RefundLineSchema(Schema):

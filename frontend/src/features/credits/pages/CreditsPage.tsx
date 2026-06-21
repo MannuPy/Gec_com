@@ -35,6 +35,8 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useCredits, useSettleCredit, useExportCreditsExcel, useExportCreditsPdf, useCreditHistory } from "../hooks/useCredits";
+import { productsApi } from "@/api/endpoints/products";
+import { useQuery } from "@tanstack/react-query";
 import type { Customer } from "@/types/customer";
 import type { CreditHistoryItem, CreditHistoryStatus } from "@/types/customer";
 
@@ -402,6 +404,11 @@ export default function CreditsPage() {
     customer_type: (customerType as "SIMPLE" | "TECHNICIEN") || undefined,
   });
 
+  const branchesQuery = useQuery({
+    queryKey: ["branches"],
+    queryFn: productsApi.branches,
+  });
+
   const settle = useSettleCredit();
   const exportXlsx = useExportCreditsExcel();
   const exportPdf = useExportCreditsPdf(branchId || undefined);
@@ -534,13 +541,16 @@ export default function CreditsPage() {
           <option value="SIMPLE">Simple</option>
           <option value="TECHNICIEN">Technicien</option>
         </select>
-        <input
-          type="text"
-          placeholder="ID boutique"
+        <select
           value={branchId}
           onChange={(e) => setBranchId(e.target.value)}
-          className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none w-36"
-        />
+          className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none"
+        >
+          <option value="">Tous les sites</option>
+          {(branchesQuery.data ?? []).map((branch) => (
+            <option key={branch.id} value={branch.id}>{branch.name}</option>
+          ))}
+        </select>
         {(branchId || customerType || search) && (
           <button
             onClick={() => { setBranchId(""); setCustomerType(""); setSearch(""); }}
