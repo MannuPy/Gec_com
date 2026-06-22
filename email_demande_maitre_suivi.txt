@@ -1,0 +1,58 @@
+Objet : Demande de supervision pour mon mémoire de fin de cycle – Génie Logiciel / Analyse de données
+
+Madame / Monsieur le Professeur [Nom du Professeur],
+
+Je me permets de vous adresser ce message avec tout le respect que je vous dois.
+
+Je suis [Votre Prénom et Nom], étudiant(e) en troisième année de Licence en Génie Logiciel,
+option Analyse de Données, à [Nom de l'Institution], pour l'année académique 2025-2026.
+
+Dans le cadre de la préparation de ma soutenance de fin de cycle, je suis actuellement à la
+recherche d'un(e) maître de suivi dont l'expertise et la rigueur académique puissent guider
+et enrichir mon travail de mémoire.
+
+C'est tout naturellement vers vous que je me suis tourné(e).
+
+En effet, vos travaux et enseignements dans le domaine du [domaine du professeur :
+génie logiciel / systèmes d'information / intelligence artificielle / analyse de données],
+ainsi que la qualité pédagogique que vous démontrez dans vos cours, font de vous le
+profil idéal pour accompagner un projet à l'intersection du développement logiciel et
+de l'analyse de données.
+
+---
+
+Mon projet de mémoire a pour titre :
+
+    « Conception et développement d'une plateforme SaaS de gestion commerciale
+      avec modules d'analyse de données et d'intelligence artificielle »
+
+Il s'agit de la conception et du développement complet d'une application web de type SaaS
+(Software as a Service) destinée aux petites et moyennes entreprises (PME) commerciales.
+La plateforme couvre l'intégralité du cycle commercial — gestion des stocks, des ventes,
+des fournisseurs, des transferts inter-sites et de l'inventaire — et intègre des modules
+avancés de Machine Learning : prévision de la demande, scoring crédit client, détection
+d'anomalies sur les ventes, classification ABC/XYZ des produits et segmentation RFM.
+
+Ce projet mobilise des compétences transversales en :
+  - Architecture logicielle et développement full-stack (Python/Flask + React/TypeScript)
+  - Modélisation et administration de bases de données relationnelles (MySQL)
+  - Analyse de données et Machine Learning (scikit-learn, pandas, numpy)
+  - Déploiement cloud et sécurisation d'une application web (JWT, RBAC, PythonAnywhere)
+
+Un document de présentation détaillé du projet est joint à ce message.
+
+---
+
+Votre expertise serait pour moi une chance considérable. Je suis convaincu(e) que vos
+conseils me permettront de produire un mémoire rigoureux, cohérent et de qualité.
+
+Je reste bien entendu disponible pour tout échange complémentaire, à l'heure et au lieu
+qui vous conviendront le mieux.
+
+Dans l'attente de votre réponse, je vous adresse, Madame / Monsieur le Professeur,
+l'expression de ma haute considération et de mon profond respect.
+
+[Votre Prénom et Nom]
+Étudiant(e) en Licence 3 – Génie Logiciel, option Analyse de Données
+[Nom de l'Institution]
+Contact : [Votre email] | [Votre numéro de téléphone]

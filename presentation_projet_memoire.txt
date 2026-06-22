@@ -1,0 +1,271 @@
+================================================================================
+    DOCUMENT DE PRÉSENTATION DU PROJET DE MÉMOIRE DE FIN DE CYCLE
+    À L'ATTENTION DU MAÎTRE DE SUIVI
+================================================================================
+
+Établissement   : [Nom de l'institution]
+Filière         : Génie Logiciel – option Analyse de Données
+Niveau          : Licence 3 (Bac+3)
+Année académique: 2025-2026
+Étudiant(e)     : [Prénom Nom]
+Contact         : [email] | [téléphone]
+Date            : Juin 2026
+
+--------------------------------------------------------------------------------
+1. TITRE DU PROJET
+--------------------------------------------------------------------------------
+
+Conception et développement d'une plateforme SaaS de gestion commerciale
+avec modules d'analyse de données et d'intelligence artificielle
+
+--------------------------------------------------------------------------------
+2. CONTEXTE ET PROBLÉMATIQUE
+--------------------------------------------------------------------------------
+
+Les petites et moyennes entreprises (PME) commerciales en Afrique subsaharienne
+font face à un défi majeur : gérer efficacement leurs opérations quotidiennes
+(stocks, ventes, fournisseurs, transferts entre boutiques) tout en disposant
+d'outils d'aide à la décision basés sur leurs propres données.
+
+La plupart des solutions existantes sont soit trop coûteuses, soit inadaptées
+au contexte local (multi-sites, fonctionnement hors-ligne, gestion du crédit
+informel client).
+
+Problématique centrale :
+  Comment concevoir une plateforme logicielle complète, sécurisée et déployable
+  en mode SaaS, qui centralise la gestion commerciale d'une PME multi-sites
+  tout en offrant des modules d'analyse prédictive accessibles sans expertise
+  en data science ?
+
+--------------------------------------------------------------------------------
+3. OBJECTIFS DU PROJET
+--------------------------------------------------------------------------------
+
+Objectif général :
+  Concevoir, développer et déployer une application web SaaS full-stack couvrant
+  l'ensemble du cycle commercial d'une PME, enrichie de modules d'analyse
+  de données et de machine learning.
+
+Objectifs spécifiques :
+  1. Modéliser l'architecture logicielle d'une application multi-couches
+     (API REST, base de données relationnelle, interface utilisateur réactive).
+  2. Implémenter les cas d'utilisation métier : gestion des stocks, ventes,
+     crédits clients, fournisseurs, transferts inter-sites et inventaire physique.
+  3. Intégrer des algorithmes de machine learning pour l'aide à la décision :
+     prévision de la demande, détection d'anomalies, scoring crédit, segmentation
+     client (RFM) et classification produits (ABC/XYZ).
+  4. Sécuriser l'application (authentification JWT, contrôle d'accès basé
+     sur les rôles RBAC, journalisation des actions).
+  5. Déployer la solution sur une infrastructure cloud et valider son
+     fonctionnement en environnement de production.
+
+--------------------------------------------------------------------------------
+4. PÉRIMÈTRE FONCTIONNEL (CAS D'UTILISATION)
+--------------------------------------------------------------------------------
+
+UC-01 | Authentification & gestion des utilisateurs
+  - Connexion sécurisée (JWT + refresh token)
+  - Gestion des rôles : ADMIN, MANAGER, VENDEUR
+  - Contrôle d'accès granulaire par permission (RBAC)
+  - Journalisation des actions critiques (audit log)
+
+UC-02 | Catalogue produits & gestion du stock
+  - CRUD produits avec catégories, marques, codes SKU et codes-barres
+  - Suivi des niveaux de stock par site (boutique/dépôt)
+  - Alertes de rupture de stock (seuil minimum configurable)
+  - Historique des mouvements de stock (entrées, sorties, ajustements)
+
+UC-03 | Ventes, crédits clients & retours
+  - Interface caisse (Point of Sale) avec recherche produit en temps réel
+  - Paiement comptant ou à crédit, avec plafond de crédit par client
+  - Workflow de remboursement avec approbation managériale
+  - Synchronisation hors-ligne (mode offline avec sync différée)
+
+UC-04 | Fournisseurs & réceptions de marchandises
+  - Gestion du référentiel fournisseurs
+  - Réceptions de marchandises avec mise à jour automatique du stock
+  - Historique et traçabilité des achats
+
+UC-05 | Transferts inter-sites
+  - Cycle BROUILLON → EN_TRANSIT → REÇU entre boutiques
+  - Gestion des écarts à la réception (justification obligatoire)
+  - Impact automatique sur les niveaux de stock source et destination
+
+UC-06 | Inventaire physique
+  - Ouverture de session d'inventaire par site
+  - Saisie des quantités comptées et calcul automatique des écarts
+  - Validation avec régularisation du stock (ajustement réel)
+
+UC-07 | Rapports & tableaux de bord
+  - Tableau de bord temps réel (Server-Sent Events)
+  - Indicateurs : CA du jour, panier moyen, alertes stock, top produits
+  - Comparatif inter-sites, module comptabilité simplifié
+  - Export PDF et Excel des rapports
+
+UC-08 | Analyse de données & intelligence artificielle
+  - Prévision de la demande par produit et par site (Machine Learning)
+  - Détection d'anomalies sur les ventes (Isolation Forest)
+  - Scoring crédit client (Random Forest / scoring par règles)
+  - Segmentation clients RFM (K-Means clustering)
+  - Classification produits ABC/XYZ (contribution CA + régularité)
+  - Customer Lifetime Value (CLV) estimée
+  - Analyse de cohortes de clients
+
+--------------------------------------------------------------------------------
+5. ARCHITECTURE TECHNIQUE
+--------------------------------------------------------------------------------
+
+Architecture globale : Application web 3-tiers (Client / API / Base de données)
+
+  ┌─────────────────────────────────────────────────────────┐
+  │  FRONTEND (React 18 + TypeScript + Vite)                │
+  │  - Interface utilisateur réactive (SPA)                 │
+  │  - Gestion d'état : Zustand + React Query               │
+  │  - Mode hors-ligne : IndexedDB (Dexie.js)               │
+  └────────────────────┬────────────────────────────────────┘
+                       │ HTTPS / REST API + SSE
+  ┌────────────────────▼────────────────────────────────────┐
+  │  BACKEND API (Python 3.12 + Flask 3 + Flask-JWT)        │
+  │  - Architecture en Blueprints (modules métier)          │
+  │  - ORM : SQLAlchemy 2.x + marshmallow (sérialisation)   │
+  │  - Sécurité : JWT, RBAC, liste noire de tokens          │
+  │  - ML : scikit-learn, pandas, numpy                     │
+  │  - Tâches asynchrones : Celery + Redis (optionnel)      │
+  └────────────────────┬────────────────────────────────────┘
+                       │ SQLAlchemy ORM
+  ┌────────────────────▼────────────────────────────────────┐
+  │  BASE DE DONNÉES (MySQL – PythonAnywhere)               │
+  │  - 25+ tables relationnelles normalisées                │
+  │  - Feature Store (données pré-calculées pour le ML)     │
+  │  - Migrations versionnées (Flask-Migrate / Alembic)     │
+  └─────────────────────────────────────────────────────────┘
+
+Stack technologique complète :
+  Backend  : Python 3.12, Flask 3.0, SQLAlchemy 2.x, marshmallow,
+             Flask-JWT-Extended, scikit-learn, pandas, numpy, openpyxl
+  Frontend : React 18, TypeScript, Vite, Zustand, TanStack Query,
+             Axios, Dexie.js (IndexedDB), Recharts, Lucide Icons
+  Base de données : MySQL 8 (production), SQLite (développement)
+  Déploiement : PythonAnywhere (cloud), GitHub (versioning)
+  Outils   : Git, ESLint, Prettier, pytest, py_compile
+
+--------------------------------------------------------------------------------
+6. MODULES DE MACHINE LEARNING (détail)
+--------------------------------------------------------------------------------
+
+  Module 1 — Prévision de la demande
+    Algorithme  : Régression linéaire / Holt-Winters / Random Forest Regressor
+    Objectif    : Prédire la quantité à commander pour les N prochains jours
+    Données     : Historique des ventes par produit et par site
+    Sortie      : Quantité prévisionnelle + alerte si stock < prévision
+
+  Module 2 — Détection d'anomalies
+    Algorithme  : Isolation Forest (repli : Z-score)
+    Objectif    : Identifier les ventes statistiquement atypiques
+    Données     : Montant, remise, heure de vente, écart vs moyenne
+    Sortie      : Score d'anomalie + liste des raisons détectées
+
+  Module 3 — Scoring crédit client
+    Algorithme  : Random Forest Classifier (repli : scoring par règles)
+    Objectif    : Évaluer le risque de défaut de paiement (score 0-100)
+    Données     : Historique achats à crédit, fréquence, taux de retard
+    Sortie      : Score + niveau de risque (FAIBLE / MOYEN / ÉLEVÉ)
+
+  Module 4 — Segmentation RFM
+    Algorithme  : K-Means clustering (repli : quartiles)
+    Objectif    : Segmenter les clients selon Récence/Fréquence/Montant
+    Données     : Historique des ventes associées à un client
+    Sortie      : Segment (CHAMPIONS / RÉGULIERS / À RISQUE / OCCASIONNELS)
+
+  Module 5 — Classification ABC/XYZ
+    Algorithme  : Règles pandas (déterministe)
+    Objectif    : Classer les produits par contribution CA et régularité
+    Données     : CA cumulé par produit, coefficient de variation hebdo
+    Sortie      : Classe combinée (ex. AX = produit star très régulier)
+
+--------------------------------------------------------------------------------
+7. PLANNING PRÉVISIONNEL
+--------------------------------------------------------------------------------
+
+  Phase 1 | Recherche bibliographique & cadrage              [Mois 1]
+    - Revue de littérature : SaaS, analyse de données, ML appliqué aux PME
+    - Définition du cahier des charges fonctionnel et technique
+    - Validation des choix technologiques
+
+  Phase 2 | Conception & modélisation                        [Mois 2]
+    - Diagrammes UML : cas d'utilisation, séquences, classes
+    - Modèle Entité-Relation (MER) et schéma de base de données
+    - Maquettes interfaces (wireframes)
+
+  Phase 3 | Développement backend                            [Mois 3]
+    - Implémentation de l'API REST (Flask, blueprints)
+    - Modèles SQLAlchemy + migrations
+    - Authentification, autorisation, sécurité
+
+  Phase 4 | Développement frontend                           [Mois 4]
+    - Pages et composants React / TypeScript
+    - Intégration API, gestion d'état, mode hors-ligne
+
+  Phase 5 | Modules d'analyse de données & ML               [Mois 5]
+    - Implémentation et intégration des 5 modules ML
+    - Validation des résultats, tests de performance
+
+  Phase 6 | Tests, déploiement & rédaction du mémoire       [Mois 6]
+    - Tests unitaires et d'intégration
+    - Déploiement en production (PythonAnywhere)
+    - Rédaction du mémoire et préparation de la soutenance
+
+--------------------------------------------------------------------------------
+8. RÉSULTATS ATTENDUS
+--------------------------------------------------------------------------------
+
+  1. Une application web SaaS fonctionnelle et déployée en production,
+     couvrant l'intégralité des besoins de gestion d'une PME commerciale.
+
+  2. Cinq modules de machine learning opérationnels, avec traçabilité
+     des modèles entraînés (registre des versions, métriques d'évaluation).
+
+  3. Un mémoire structuré documentant : l'analyse des besoins, la conception
+     de l'architecture, les choix algorithmiques, les résultats obtenus
+     et les perspectives d'amélioration.
+
+  4. Une contribution académique sur l'application du machine learning
+     aux systèmes de gestion commerciale dans le contexte des PME africaines.
+
+--------------------------------------------------------------------------------
+9. COMPÉTENCES MISES EN ŒUVRE
+--------------------------------------------------------------------------------
+
+  Domaine                       | Compétences mobilisées
+  ------------------------------|-------------------------------------------
+  Génie logiciel                | UML, architecture MVC, REST API, tests
+  Développement full-stack      | Python/Flask, React/TypeScript, SQL
+  Analyse de données            | Pandas, numpy, feature engineering
+  Machine Learning              | scikit-learn, évaluation de modèles
+  Base de données               | Modélisation relationnelle, ORM, migrations
+  Sécurité informatique         | JWT, RBAC, audit log, hachage bcrypt
+  DevOps / Déploiement          | Git, CI, déploiement cloud
+
+--------------------------------------------------------------------------------
+10. BESOINS EN ENCADREMENT
+--------------------------------------------------------------------------------
+
+En tant que maître de suivi, votre rôle attendu porterait sur :
+
+  - La validation du cadrage scientifique et académique du mémoire
+  - Les conseils méthodologiques (structure du mémoire, rigueur de l'analyse)
+  - La revue critique des choix d'architecture et des algorithmes ML utilisés
+  - L'orientation bibliographique (articles, ouvrages de référence)
+  - Le suivi de l'avancement via des points réguliers (fréquence à définir)
+  - La préparation à la soutenance orale
+
+Je suis disponible pour tout échange, démonstration de la plateforme
+ou ajustement du périmètre selon vos recommandations.
+
+--------------------------------------------------------------------------------
+
+Document préparé par : [Prénom Nom]
+Date                  : Juin 2026
+Institution           : [Nom de l'institution]
+
+================================================================================

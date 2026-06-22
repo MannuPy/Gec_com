@@ -613,8 +613,12 @@ def branches_compare():
         client_ids = {s.customer_id for s in sales if s.customer_id}
         nb_clients_actifs = len(client_ids)
 
-        period_days = max(1, (date_fin - date_debut).days + 1)
-        top_prods = top_products_for_period(branch_id=str(branch.id), days=period_days, limit=1)
+        # Fix : utiliser debut_dt/fin_dt (dates absolues) au lieu de days
+        # relatifs a now() pour avoir le bon top produit sur la periode historique.
+        top_prods = top_products_for_period(
+            branch_id=str(branch.id), limit=1,
+            date_from=debut_dt, date_to=fin_dt,
+        )
         top_product = top_prods[0]["product_name"] if top_prods else "—"
 
         kpis.append({
