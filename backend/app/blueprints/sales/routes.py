@@ -3,7 +3,7 @@
 Cf. 17-API-REST.md section Sales et 04-REGLES-METIER.md (RG-20 a RG-27). La
 logique metier est deleguee a `app.services.sale_service`.
 """
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from flask import jsonify, request
