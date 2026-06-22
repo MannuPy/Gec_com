@@ -70,6 +70,8 @@ export interface SaleListParams {
   status?: string;
   customer_id?: string;
   cashier_id?: string;
+  date_from?: string;
+  date_to?: string;
   page?: number;
   per_page?: number;
 }

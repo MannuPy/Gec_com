@@ -1,4 +1,4 @@
-"""Schémas marshmallow pour le blueprint `suppliers` (fournisseurs, réceptions)."""
+"""Schemas marshmallow pour le blueprint `suppliers` (fournisseurs, receptions)."""
 from marshmallow import Schema, fields, validate
 
 
@@ -64,10 +64,10 @@ class ReceptionSchema(Schema):
     total_amount = fields.Method("get_total_amount")
 
     def get_supplier_name(self, obj):
-        return obj.supplier.name
+        return obj.supplier.name if obj.supplier else ""
 
     def get_branch_name(self, obj):
-        return obj.branch.name
+        return obj.branch.name if obj.branch else ""
 
     def get_total_amount(self, obj):
         total = sum(

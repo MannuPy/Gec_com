@@ -1,4 +1,4 @@
-"""Schémas marshmallow pour le blueprint `transfers`."""
+"""Schemas marshmallow pour le blueprint `transfers`."""
 from marshmallow import Schema, fields, validate
 
 
@@ -37,10 +37,10 @@ class TransferLineSchema(Schema):
     variance_comment = fields.String(allow_none=True)
 
     def get_product_sku(self, obj):
-        return obj.product.sku
+        return obj.product.sku if obj.product else ""
 
     def get_product_name(self, obj):
-        return obj.product.name
+        return obj.product.name if obj.product else "Produit supprime"
 
 
 class TransferSchema(Schema):
@@ -57,7 +57,7 @@ class TransferSchema(Schema):
     lines = fields.List(fields.Nested(TransferLineSchema))
 
     def get_source_branch_name(self, obj):
-        return obj.source_branch.name
+        return obj.source_branch.name if obj.source_branch else ""
 
     def get_destination_branch_name(self, obj):
-        return obj.destination_branch.name if obj.destination_branch else None
+        return obj.destination_branch.name if obj.destination_branch else ""

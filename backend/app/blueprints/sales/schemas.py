@@ -120,7 +120,7 @@ class SaleLineSchema(Schema):
         return obj.product.sku if obj.product else ""
 
     def get_product_name(self, obj):
-        return obj.product.name if obj.product else "Produit supprimé"
+        return obj.product.name if obj.product else "Produit supprime"
 
 
 class SaleSchema(Schema):
@@ -145,10 +145,10 @@ class SaleSchema(Schema):
     lines = fields.List(fields.Nested(SaleLineSchema))
 
     def get_branch_name(self, obj):
-        return obj.branch.name
+        return obj.branch.name if obj.branch else ""
 
     def get_cashier_name(self, obj):
-        return obj.cashier.full_name
+        return obj.cashier.full_name if obj.cashier else ""
 
     def get_customer_name(self, obj):
         return obj.customer.full_name if obj.customer else None
