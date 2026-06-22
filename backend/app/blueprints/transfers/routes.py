@@ -52,10 +52,10 @@ def create_transfer():
             details={"destination_branch_id": "doit etre different de source_branch_id"},
         )
 
-    if Branch.query.get(payload["source_branch_id"]) is None:
+    if db.session.get(Branch, payload["source_branch_id"]) is None:
         raise not_found("Site source", payload["source_branch_id"])
 
-    if Branch.query.get(payload["destination_branch_id"]) is None:
+    if db.session.get(Branch, payload["destination_branch_id"]) is None:
         raise not_found("Site destination", payload["destination_branch_id"])
 
     transfer = Transfer(
@@ -67,7 +67,7 @@ def create_transfer():
     )
 
     for line in payload["lines"]:
-        if Product.query.get(line["product_id"]) is None:
+        if db.session.get(Product, line["product_id"]) is None:
             raise not_found("Produit", line["product_id"])
 
         transfer.lines.append(TransferLine(
@@ -84,7 +84,7 @@ def create_transfer():
 @transfers_bp.get("/<string:transfer_id>")
 @require_permission("transfers:read")
 def get_transfer(transfer_id: str):
-    transfer = Transfer.query.get(transfer_id)
+    transfer = db.session.get(Transfer, transfer_id)
     if transfer is None:
         raise not_found("Transfert", transfer_id)
     return jsonify(transfer_schema.dump(transfer))
@@ -94,7 +94,7 @@ def get_transfer(transfer_id: str):
 @require_permission("transfers:write")
 def send_transfer(transfer_id: str):
     """Expedie un transfert BROUILLON : sortie de stock du site source (RG-17)."""
-    transfer = Transfer.query.get(transfer_id)
+    transfer = db.session.get(Transfer, transfer_id)
     if transfer is None:
         raise not_found("Transfert", transfer_id)
 
@@ -129,7 +129,7 @@ def send_transfer(transfer_id: str):
 @require_permission("transfers:write")
 def receive_transfer(transfer_id: str):
     """Receptionne un transfert EN_TRANSIT (RG-17/RG-18)."""
-    transfer = Transfer.query.get(transfer_id)
+    transfer = db.session.get(Transfer, transfer_id)
     if transfer is None:
         raise not_found("Transfert", transfer_id)
 
@@ -170,6 +170,23 @@ def receive_transfer(transfer_id: str):
                 comment="Reception transfert " + transfer.reference,
             )
 
+    # Bug #13 : si toutes les quantites recues sont 0, le transfert est
+    # quand meme marque RECU (perte totale en transit), mais on exige
+    # un commentaire sur chaque ligne pour justifier la perte.
+    total_received = sum(received_line["quantity_received"] for received_line in payload["lines"])
+    if total_received == 0:
+        missing_comments = [
+            received_line["line_id"]
+            for received_line in payload["lines"]
+            if not received_line.get("variance_comment")
+        ]
+        if missing_comments:
+            from app.utils.errors import validation_error as _ve
+            raise _ve(
+                "Aucun article recu : toutes les lignes sans article doivent etre justifiees.",
+                details={"lines_without_comment": missing_comments},
+            )
+
     transfer.status = TransferStatus.RECU.value
     transfer.received_by_id = get_jwt_identity()
     transfer.received_at = datetime.utcnow()
@@ -183,7 +200,7 @@ def receive_transfer(transfer_id: str):
 @require_permission("transfers:write")
 def cancel_transfer(transfer_id: str):
     """Annule un transfert encore en BROUILLON."""
-    transfer = Transfer.query.get(transfer_id)
+    transfer = db.session.get(Transfer, transfer_id)
     if transfer is None:
         raise not_found("Transfert", transfer_id)
 

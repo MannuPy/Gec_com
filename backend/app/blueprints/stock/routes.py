@@ -85,10 +85,10 @@ def create_adjustment():
     """Ajustement manuel de stock (inventaire, casse, perte) - RG-24."""
     payload = StockAdjustmentSchema().load(request.get_json(silent=True) or {})
 
-    if Product.query.get(payload["product_id"]) is None:
+    if db.session.get(Product, payload["product_id"]) is None:
         raise not_found("Produit", payload["product_id"])
 
-    if Branch.query.get(payload["branch_id"]) is None:
+    if db.session.get(Branch, payload["branch_id"]) is None:
         raise not_found("Site", payload["branch_id"])
 
     movement = apply_stock_movement(

@@ -129,7 +129,7 @@ def vendeur_dashboard():
     """Indicateurs de performance individuels pour le vendeur connecte."""
     from flask_jwt_extended import get_jwt_identity
     cashier_id = get_jwt_identity()
-    user = User.query.get(cashier_id)
+    user = db.session.get(User, cashier_id)
     if not user:
         return jsonify({"error": "Utilisateur introuvable"}), 404
 
@@ -256,13 +256,14 @@ def export_sales_excel():
     days = int(request.args.get("days", 30))
     since = datetime.utcnow() - timedelta(days=days)
 
+    MAX_ROWS = 5000
     q = Sale.query.filter(
         Sale.status == SaleStatus.VALIDEE.value,
         Sale.created_at >= since,
     )
     if branch_id:
         q = q.filter(Sale.branch_id == branch_id)
-    sales = q.order_by(Sale.created_at.desc()).all()
+    sales = q.order_by(Sale.created_at.desc()).limit(MAX_ROWS).all()
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -281,7 +282,7 @@ def export_sales_excel():
             float(s.total),
         ])
     for i, _ in enumerate(headers, 1):
-        ws.column_dimensions[get_column_letter(i)].auto_size = True
+        ws.column_dimensions[get_column_letter(i)].width = 20
 
     buf = BytesIO()
     wb.save(buf)
@@ -300,10 +301,11 @@ def export_stock_excel():
 
     branch_id = request.args.get("branch_id")
 
+    MAX_ROWS = 5000
     q = Stock.query
     if branch_id:
         q = q.filter(Stock.branch_id == branch_id)
-    stocks = q.all()
+    stocks = q.limit(MAX_ROWS).all()
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -321,7 +323,7 @@ def export_stock_excel():
             float(p.simple_price if p else 0) * s.quantity,
         ])
     for i, _ in enumerate(headers, 1):
-        ws.column_dimensions[get_column_letter(i)].auto_size = True
+        ws.column_dimensions[get_column_letter(i)].width = 20
 
     buf = BytesIO()
     wb.save(buf)
@@ -357,7 +359,7 @@ def export_credits_excel():
             p.status,
         ])
     for i, _ in enumerate(headers, 1):
-        ws.column_dimensions[get_column_letter(i)].auto_size = True
+        ws.column_dimensions[get_column_letter(i)].width = 20
 
     buf = BytesIO()
     wb.save(buf)

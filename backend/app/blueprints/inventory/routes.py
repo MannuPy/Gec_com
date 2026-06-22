@@ -66,7 +66,7 @@ def list_stock_counts():
 @require_permission("inventory:read")
 def get_stock_count(count_id: str):
     """Detail d une session d inventaire avec ses lignes."""
-    stock_count = StockCount.query.get(count_id)
+    stock_count = db.session.get(StockCount, count_id)
     if stock_count is None:
         raise not_found("Session d inventaire", count_id)
     return jsonify(stock_count_detail_schema.dump(stock_count))
@@ -78,7 +78,7 @@ def create_stock_count():
     """Ouvre une nouvelle session d inventaire (RF-21)."""
     payload = StockCountCreateSchema().load(request.get_json(silent=True) or {})
 
-    branch = Branch.query.get(payload["branch_id"])
+    branch = db.session.get(Branch, payload["branch_id"])
     if branch is None:
         raise not_found("Site", payload["branch_id"])
 
@@ -126,7 +126,7 @@ def create_stock_count():
 @require_permission("inventory:write")
 def update_stock_count_lines(count_id: str):
     """Saisit les quantites comptees (RF-22) et calcule les ecarts."""
-    stock_count = StockCount.query.get(count_id)
+    stock_count = db.session.get(StockCount, count_id)
     if stock_count is None:
         raise not_found("Session d inventaire", count_id)
 
@@ -185,7 +185,7 @@ def validate_stock_count(count_id: str):
     Des ventes ou transferts peuvent avoir eu lieu pendant la saisie
     de l inventaire ; le delta reel tient compte de ces mouvements.
     """
-    stock_count = StockCount.query.get(count_id)
+    stock_count = db.session.get(StockCount, count_id)
     if stock_count is None:
         raise not_found("Session d inventaire", count_id)
 
@@ -239,7 +239,7 @@ def validate_stock_count(count_id: str):
 @require_permission("inventory:write")
 def cancel_stock_count(count_id: str):
     """Annule (abandonne) une session EN_COURS sans ajustement de stock (RF-21)."""
-    stock_count = StockCount.query.get(count_id)
+    stock_count = db.session.get(StockCount, count_id)
     if stock_count is None:
         raise not_found("Session d inventaire", count_id)
 

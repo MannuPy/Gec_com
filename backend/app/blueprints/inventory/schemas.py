@@ -14,10 +14,10 @@ class StockCountLineSchema(Schema):
     comment = fields.String(allow_none=True)
 
     def get_product_sku(self, obj):
-        return obj.product.sku
+        return obj.product.sku if obj.product else ""
 
     def get_product_name(self, obj):
-        return obj.product.name
+        return obj.product.name if obj.product else "Produit supprime"
 
     def get_variance_pct(self, obj):
         if obj.variance is None:
@@ -39,15 +39,16 @@ class StockCountSchema(Schema):
     validated_at = fields.DateTime(allow_none=True)
     cancelled_by_id = fields.String(allow_none=True)
     cancelled_by_name = fields.Method("get_cancelled_by_name")
+    cancelled_at = fields.DateTime(allow_none=True)
     created_at = fields.DateTime()
     lines_count = fields.Method("get_lines_count")
     lines_with_variance = fields.Method("get_lines_with_variance")
 
     def get_branch_name(self, obj):
-        return obj.branch.name
+        return obj.branch.name if obj.branch else ""
 
     def get_created_by_name(self, obj):
-        return obj.created_by.full_name
+        return obj.created_by.full_name if obj.created_by else ""
 
     def get_validated_by_name(self, obj):
         return obj.validated_by.full_name if obj.validated_by else None

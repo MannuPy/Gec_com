@@ -160,7 +160,7 @@ def register():
 def refresh():
     """Emet un nouveau access token a partir d'un refresh token valide."""
     user_id = get_jwt_identity()
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
 
     if user is None or not user.is_active:
         raise ApiError("ACCOUNT_DISABLED", "Ce compte a ete desactive.", status_code=403)
@@ -194,7 +194,7 @@ def logout():
 @jwt_required()
 def me():
     """Retourne le profil de l'utilisateur authentifie."""
-    user = User.query.get(get_jwt_identity())
+    user = db.session.get(User, get_jwt_identity())
     if user is None:
         raise ApiError("NOT_FOUND", "Utilisateur introuvable.", status_code=404)
     return jsonify(_serialize_user(user))
@@ -204,7 +204,7 @@ def me():
 @jwt_required()
 def change_password():
     """Change le mot de passe de l'utilisateur authentifie (RF-05)."""
-    user = User.query.get(get_jwt_identity())
+    user = db.session.get(User, get_jwt_identity())
     if user is None:
         raise ApiError("NOT_FOUND", "Utilisateur introuvable.", status_code=404)
 

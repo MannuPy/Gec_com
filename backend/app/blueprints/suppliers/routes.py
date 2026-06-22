@@ -71,7 +71,7 @@ def create_supplier():
 @suppliers_bp.get("/suppliers/<string:supplier_id>")
 @require_permission("suppliers:read", "receptions:read")
 def get_supplier(supplier_id: str):
-    supplier = Supplier.query.get(supplier_id)
+    supplier = db.session.get(Supplier, supplier_id)
     if supplier is None:
         raise not_found("Fournisseur", supplier_id)
     return jsonify(supplier_schema.dump(supplier))
@@ -80,7 +80,7 @@ def get_supplier(supplier_id: str):
 @suppliers_bp.put("/suppliers/<string:supplier_id>")
 @require_permission("suppliers:write")
 def update_supplier(supplier_id: str):
-    supplier = Supplier.query.get(supplier_id)
+    supplier = db.session.get(Supplier, supplier_id)
     if supplier is None:
         raise not_found("Fournisseur", supplier_id)
 
@@ -124,10 +124,10 @@ def create_reception():
     """Crée une réception en BROUILLON (RF-11). La validation alimente le stock."""
     payload = ReceptionCreateSchema().load(request.get_json(silent=True) or {})
 
-    if Supplier.query.get(payload["supplier_id"]) is None:
+    if db.session.get(Supplier, payload["supplier_id"]) is None:
         raise not_found("Fournisseur", payload["supplier_id"])
 
-    branch = Branch.query.get(payload["branch_id"])
+    branch = db.session.get(Branch, payload["branch_id"])
     if branch is None:
         raise not_found("Site", payload["branch_id"])
 
@@ -146,7 +146,7 @@ def create_reception():
     )
 
     for line in payload["lines"]:
-        if Product.query.get(line["product_id"]) is None:
+        if db.session.get(Product, line["product_id"]) is None:
             raise not_found("Produit", line["product_id"])
 
         reception.lines.append(SupplierReceptionLine(
@@ -164,7 +164,7 @@ def create_reception():
 @suppliers_bp.get("/receptions/<string:reception_id>")
 @require_permission("receptions:read")
 def get_reception(reception_id: str):
-    reception = SupplierReception.query.get(reception_id)
+    reception = db.session.get(SupplierReception, reception_id)
     if reception is None:
         raise not_found("Réception", reception_id)
     return jsonify(reception_schema.dump(reception))
@@ -176,7 +176,7 @@ def validate_reception(reception_id: str):
     """Valide une réception : alimente le stock du dépôt et met à jour le
     dernier prix d'achat connu de chaque produit (RG-13).
     """
-    reception = SupplierReception.query.get(reception_id)
+    reception = db.session.get(SupplierReception, reception_id)
     if reception is None:
         raise not_found("Réception", reception_id)
 

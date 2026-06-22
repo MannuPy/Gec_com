@@ -62,7 +62,7 @@ def create_user():
     if User.query.filter_by(email=email).first() is not None:
         raise conflict("EMAIL_ALREADY_USED", "Un utilisateur existe deja avec cet email.")
 
-    role = Role.query.get(payload["role_id"])
+    role = db.session.get(Role, payload["role_id"])
     if role is None:
         raise not_found("Role", payload["role_id"])
 
@@ -94,7 +94,7 @@ def create_user():
 @users_bp.get("/<string:user_id>")
 @require_permission("users:read")
 def get_user(user_id: str):
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if user is None:
         raise not_found("Utilisateur", user_id)
     return jsonify(user_schema.dump(user))
@@ -104,7 +104,7 @@ def get_user(user_id: str):
 @require_permission("users:write")
 def update_user(user_id: str):
     """Met a jour un utilisateur (role, site, statut, mot de passe...)."""
-    user = User.query.get(user_id)
+    user = db.session.get(User, user_id)
     if user is None:
         raise not_found("Utilisateur", user_id)
 
@@ -137,7 +137,7 @@ def update_user(user_id: str):
                 )
 
     if "role_id" in payload:
-        role = Role.query.get(payload["role_id"])
+        role = db.session.get(Role, payload["role_id"])
         if role is None:
             raise validation_error("Role inconnu.", details={"role_id": payload["role_id"]})
         user.role_id = role.id

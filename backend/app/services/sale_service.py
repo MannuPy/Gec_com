@@ -43,7 +43,7 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
 
     customer = None
     if payload.get("customer_id"):
-        customer = Customer.query.get(payload["customer_id"])
+        customer = db.session.get(Customer, payload["customer_id"])
         if customer is None:
             raise not_found("Client", payload["customer_id"])
 
@@ -59,7 +59,7 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
     subtotal = Decimal("0")
 
     for line in payload["lines"]:
-        product = Product.query.get(line["product_id"])
+        product = db.session.get(Product, line["product_id"])
         if product is None:
             raise not_found("Produit", line["product_id"])
         if not product.is_active:
@@ -259,7 +259,7 @@ def approve_refund(refund: Sale, admin_id: str) -> Sale:
             status_code=409,
         )
 
-    original_sale = Sale.query.get(refund.refund_of_sale_id)
+    original_sale = db.session.get(Sale, refund.refund_of_sale_id)
 
     for refund_line in refund.lines:
         apply_stock_movement(
@@ -346,7 +346,7 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
 
     customer = None
     if item.get("customer_id"):
-        customer = Customer.query.get(item["customer_id"])
+        customer = db.session.get(Customer, item["customer_id"])
         if customer is None:
             notes.append("Client introuvable cote serveur, vente traitee sans client.")
 
@@ -359,7 +359,7 @@ def sync_offline_sale(item: dict, cashier_id: str) -> dict:
     sale_lines = []
     subtotal = Decimal("0")
     for line in item["lines"]:
-        product = Product.query.get(line["product_id"])
+        product = db.session.get(Product, line["product_id"])
         if product is None or not product.is_active:
             notes.append("Produit " + str(line["product_id"]) + " introuvable ou desactive, ligne ignoree.")
             continue

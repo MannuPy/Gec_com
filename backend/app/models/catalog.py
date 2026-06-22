@@ -128,3 +128,8 @@ class StockMovement(db.Model, UUIDPrimaryKeyMixin):
     created_by_id = db.Column(db.String(36), db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, server_default=db.func.now())
     comment = db.Column(db.String(255), nullable=True)
+    product = db.relationship("Product", lazy="joined")
+    branch = db.relationship("Branch", lazy="joined")
+
+    def __repr__(self) -> str:
+        return "<StockMovement " + self.movement_type + " qty=" + str(self.quantity) + ">"

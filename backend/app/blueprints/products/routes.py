@@ -146,11 +146,11 @@ def create_product():
         raise conflict("BARCODE_ALREADY_EXISTS", "Ce code-barres est deja utilise.")
 
     if payload["category_id"]:
-        if Category.query.get(payload["category_id"]) is None:
+        if db.session.get(Category, payload["category_id"]) is None:
             raise not_found("Categorie", payload["category_id"])
 
     if payload["brand_id"]:
-        if Brand.query.get(payload["brand_id"]) is None:
+        if db.session.get(Brand, payload["brand_id"]) is None:
             raise not_found("Marque", payload["brand_id"])
 
     if payload["technician_price"] > payload["simple_price"]:
@@ -169,7 +169,7 @@ def create_product():
 @products_bp.get("/products/<string:product_id>")
 @require_permission("products:read", "sales:create", "stock:read")
 def get_product(product_id: str):
-    product = Product.query.get(product_id)
+    product = db.session.get(Product, product_id)
     if product is None:
         raise not_found("Produit", product_id)
     return jsonify(product_schema.dump(product))
@@ -179,7 +179,7 @@ def get_product(product_id: str):
 @require_permission("products:write")
 def update_product(product_id: str):
     """Met a jour un produit (prix, seuils, statut...) - cf. RG-21."""
-    product = Product.query.get(product_id)
+    product = db.session.get(Product, product_id)
     if product is None:
         raise not_found("Produit", product_id)
 
@@ -193,11 +193,11 @@ def update_product(product_id: str):
             raise conflict("BARCODE_ALREADY_EXISTS", "Ce code-barres est deja utilise.")
 
     if "category_id" in payload and payload["category_id"]:
-        if Category.query.get(payload["category_id"]) is None:
+        if db.session.get(Category, payload["category_id"]) is None:
             raise not_found("Categorie", payload["category_id"])
 
     if "brand_id" in payload and payload["brand_id"]:
-        if Brand.query.get(payload["brand_id"]) is None:
+        if db.session.get(Brand, payload["brand_id"]) is None:
             raise not_found("Marque", payload["brand_id"])
 
     new_simple = payload.get("simple_price", product.simple_price)

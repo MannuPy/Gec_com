@@ -80,6 +80,19 @@ def list_sales():
     if cashier_id:
         query = query.filter(Sale.cashier_id == cashier_id)
 
+    date_from = request.args.get("date_from")
+    if date_from:
+        try:
+            query = query.filter(Sale.created_at >= datetime.strptime(date_from, "%Y-%m-%d"))
+        except ValueError:
+            pass
+    date_to = request.args.get("date_to")
+    if date_to:
+        try:
+            query = query.filter(Sale.created_at < datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1))
+        except ValueError:
+            pass
+
     page = request.args.get("page", default=1, type=int)
     per_page = min(request.args.get("per_page", default=20, type=int), 100)
 
@@ -123,7 +136,7 @@ def sync_sales_route():
 @sales_bp.get("/<string:sale_id>")
 @require_permission("sales:read")
 def get_sale(sale_id: str):
-    sale = Sale.query.get(sale_id)
+    sale = db.session.get(Sale, sale_id)
     if sale is None:
         raise not_found("Vente", sale_id)
     return jsonify(sale_schema.dump(sale))
@@ -133,7 +146,7 @@ def get_sale(sale_id: str):
 @require_permission("sales:read")
 def sale_receipt(sale_id: str):
     """Genere le recu de vente au format PDF (RF-19)."""
-    sale = Sale.query.get(sale_id)
+    sale = db.session.get(Sale, sale_id)
     if sale is None:
         raise not_found("Vente", sale_id)
 
@@ -145,7 +158,7 @@ def sale_receipt(sale_id: str):
 @require_permission("sales:refund")
 def refund_sale(sale_id: str):
     """Emet un avoir sur une vente validee (RG-27)."""
-    sale = Sale.query.get(sale_id)
+    sale = db.session.get(Sale, sale_id)
     if sale is None:
         raise not_found("Vente", sale_id)
 
@@ -192,7 +205,7 @@ def create_customer():
 @sales_bp.get("/customers/<string:customer_id>")
 @require_permission("customers:read", "sales:create")
 def get_customer(customer_id: str):
-    customer = Customer.query.get(customer_id)
+    customer = db.session.get(Customer, customer_id)
     if customer is None:
         raise not_found("Client", customer_id)
     return jsonify(customer_schema.dump(customer))
@@ -201,7 +214,7 @@ def get_customer(customer_id: str):
 @sales_bp.put("/customers/<string:customer_id>")
 @require_permission("customers:write")
 def update_customer(customer_id: str):
-    customer = Customer.query.get(customer_id)
+    customer = db.session.get(Customer, customer_id)
     if customer is None:
         raise not_found("Client", customer_id)
 
@@ -226,7 +239,7 @@ def update_customer(customer_id: str):
 @require_permission("customers:read", "sales:create")
 def list_customer_payments(customer_id: str):
     """Liste les echeances de remboursement (passees et a venir) d'un client."""
-    customer = Customer.query.get(customer_id)
+    customer = db.session.get(Customer, customer_id)
     if customer is None:
         raise not_found("Client", customer_id)
 
@@ -247,7 +260,7 @@ def create_customer_payment(customer_id: str):
     solvabilite (`app/ml/credit_scoring.py`), en remplacement de la
     simulation deterministe documentee en section 20.6.2.
     """
-    customer = Customer.query.get(customer_id)
+    customer = db.session.get(Customer, customer_id)
     if customer is None:
         raise not_found("Client", customer_id)
 
@@ -255,7 +268,7 @@ def create_customer_payment(customer_id: str):
 
     sale = None
     if payload.get("sale_id"):
-        sale = Sale.query.get(payload["sale_id"])
+        sale = db.session.get(Sale, payload["sale_id"])
         if sale is None:
             raise not_found("Vente", payload["sale_id"])
 
@@ -345,7 +358,7 @@ def list_pending_refunds():
 @require_permission('sales:refund')
 def approve_refund_route(sale_id: str):
     """Approuve un avoir en attente et reintegre le stock (RG-27)."""
-    refund = Sale.query.get(sale_id)
+    refund = db.session.get(Sale, sale_id)
     if refund is None:
         raise not_found('Avoir', sale_id)
     updated = approve_refund(refund, admin_id=get_jwt_identity())
@@ -356,7 +369,7 @@ def approve_refund_route(sale_id: str):
 @require_permission('sales:refund')
 def reject_refund_route(sale_id: str):
     """Rejette un avoir en attente."""
-    refund = Sale.query.get(sale_id)
+    refund = db.session.get(Sale, sale_id)
     if refund is None:
         raise not_found('Avoir', sale_id)
     payload = request.get_json(silent=True) or {}
@@ -410,7 +423,7 @@ def settle_credit(customer_id: str):
 
     Payload : { amount: string (Decimal), note?: string }
     """
-    customer = Customer.query.get(customer_id)
+    customer = db.session.get(Customer, customer_id)
     if customer is None:
         raise not_found('Client', customer_id)
 
@@ -462,7 +475,8 @@ def list_credits_history():
         .distinct()
         .subquery()
     )
-    customers = (
+    branch_id_filter = request.args.get('branch_id')
+    customers_q = (
         Customer.query
         .filter(
             or_(
@@ -471,8 +485,21 @@ def list_credits_history():
             )
         )
         .order_by(Customer.credit_balance.desc())
-        .all()
     )
+    if branch_id_filter:
+        branch_customer_ids = (
+            db.session.query(Sale.customer_id)
+            .filter(
+                Sale.branch_id == branch_id_filter,
+                Sale.payment_type == PaymentType.CREDIT.value,
+                Sale.status == SaleStatus.VALIDEE.value,
+                Sale.customer_id.isnot(None),
+            )
+            .distinct()
+            .subquery()
+        )
+        customers_q = customers_q.filter(Customer.id.in_(branch_customer_ids))
+    customers = customers_q.all()
 
     customer_ids = [c.id for c in customers]
     payments_by_customer = {}
@@ -497,9 +524,13 @@ def list_credits_history():
 
         if balance == Decimal('0') and paid_pmts:
             credit_status = 'SOLDE'
-        elif balance > Decimal('0') and paid_pmts:
+        elif balance > Decimal('0'):
+            # EN_COURS : encours actif, qu'il y ait ou non des paiements
+            # enregistres. NON_COMMENCE etait incorrect pour les clients
+            # ayant un solde positif mais aucun versement effectue.
             credit_status = 'EN_COURS'
         else:
+            # balance == 0 et aucun paiement : jamais eu de credit
             credit_status = 'NON_COMMENCE'
 
         if status_filter and credit_status != status_filter:
