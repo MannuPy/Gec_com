@@ -421,4 +421,4 @@ def build_credits_report_pdf(customers: list, branch_id: str | None = None) -> i
     )
 
     doc.build(elements)
-    re
+    return buf

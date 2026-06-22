@@ -232,10 +232,23 @@ def compute_sales_trend(branch_id=None, days: int = 30) -> list:
     return result
 
 
-def top_products_for_period(branch_id=None, days: int = 30, limit: int = 10) -> list:
-    """Produits les plus vendus (par quantite) sur la periode donnee."""
-    days = max(1, min(int(days), 365))
-    period_start = datetime.combine((datetime.utcnow() - timedelta(days=days - 1)).date(), time.min)
+def top_products_for_period(
+    branch_id=None,
+    days: int = 30,
+    limit: int = 10,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> list:
+    """Produits les plus vendus (par quantite) sur la periode donnee.
+
+    Si `date_from`/`date_to` sont fournis, ils priment sur `days` (permet
+    d'utiliser une fenetre absolue plutot que relative a maintenant).
+    """
+    if date_from is not None:
+        period_start = date_from
+    else:
+        days = max(1, min(int(days), 365))
+        period_start = datetime.combine((datetime.utcnow() - timedelta(days=days - 1)).date(), time.min)
 
     query = (
         db.session.query(
@@ -248,16 +261,24 @@ def top_products_for_period(branch_id=None, days: int = 30, limit: int = 10) -> 
         .join(Sale, Sale.id == SaleLine.sale_id)
         .filter(Sale.status == SaleStatus.VALIDEE.value, Sale.created_at >= period_start)
     )
+    if date_to is not None:
+        query = query.filter(Sale.created_at <= date_to)
     if branch_id:
         query = query.filter(Sale.branch_id == branch_id)
 
     rows = (
-        query.group_by(Product.id, Product.name, Product.sku)
-        .order_by(db.desc("total_quantity"))
+        query
+        .group_by(Product.id, Product.name, Product.sku)
+        .order_by(func.sum(SaleLine.quantity).desc())
         .limit(limit)
         .all()
     )
     return [
-        {"product_id": r[0], "product_name": r[1], "sku": r[2], "total_quantity": int(r[3])}
-        for r in rows
+        {
+            "product_id": str(row.id),
+            "product_name": row.name,
+            "sku": row.sku,
+            "total_quantity": int(row.total_quantity),
+        }
+        for row in rows
     ]
