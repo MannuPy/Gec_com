@@ -14,19 +14,19 @@ class StockItemSchema(Schema):
     below_min = fields.Method("get_below_min")
 
     def get_product_sku(self, obj):
-        return obj.product.sku
+        return obj.product.sku if obj.product else ""
 
     def get_product_name(self, obj):
-        return obj.product.name
+        return obj.product.name if obj.product else "Produit supprime"
 
     def get_branch_name(self, obj):
-        return obj.branch.name
+        return obj.branch.name if obj.branch else ""
 
     def get_min_stock_threshold(self, obj):
-        return obj.product.min_stock_threshold
+        return obj.product.min_stock_threshold if obj.product else 0
 
     def get_below_min(self, obj):
-        return obj.quantity < obj.product.min_stock_threshold
+        return obj.quantity < obj.product.min_stock_threshold if obj.product else False
 
 
 class StockMovementSchema(Schema):
@@ -43,10 +43,10 @@ class StockMovementSchema(Schema):
     created_at = fields.DateTime()
 
     def get_product_name(self, obj):
-        return obj.product.name
+        return obj.product.name if obj.product else "Produit supprime"
 
     def get_branch_name(self, obj):
-        return obj.branch.name
+        return obj.branch.name if obj.branch else ""
 
 
 class StockAdjustmentSchema(Schema):

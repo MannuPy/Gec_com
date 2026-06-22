@@ -23,7 +23,7 @@ from app.models import (
     StockMovementType,
 )
 from app.services.reference_service import generate_reference
-from app.services.stock_service import apply_stock_movement
+from app.services.stock_service import apply_stock_movement, get_or_create_stock_row
 from app.utils.decorators import require_permission
 from app.utils.errors import conflict, not_found, validation_error
 
@@ -101,8 +101,11 @@ def create_stock_count():
     db.session.add(stock_count)
     db.session.flush()
 
+    # Fix Bug #1 : utiliser des jointures explicites pour eviter le double-JOIN
+    # genere par lazy="joined" + Stock.query.join(Product) (SQLAlchemy 2.x).
     stock_rows = (
-        Stock.query.join(Product)
+        db.session.query(Stock)
+        .join(Stock.product)
         .filter(Stock.branch_id == branch.id, Product.is_active.is_(True))
         .all()
     )
@@ -171,7 +174,17 @@ def update_stock_count_lines(count_id: str):
 @inventory_bp.post("/counts/<string:count_id>/validate")
 @require_permission("inventory:write")
 def validate_stock_count(count_id: str):
-    """Valide la session d inventaire et ajuste le stock (RF-23)."""
+    """Valide la session d inventaire et ajuste le stock (RF-23).
+
+    Fix Bug #2 : recalcule le delta reel au moment de la validation
+    (counted_quantity - stock_actuel) plutot que d utiliser line.variance
+    (counted - stock_theorique_au_moment_de_la_creation).
+
+    Cela garantit que le stock final = counted_quantity >= 0,
+    ce qui ne peut jamais violer la contrainte CHECK (quantity >= 0).
+    Des ventes ou transferts peuvent avoir eu lieu pendant la saisie
+    de l inventaire ; le delta reel tient compte de ces mouvements.
+    """
     stock_count = StockCount.query.get(count_id)
     if stock_count is None:
         raise not_found("Session d inventaire", count_id)
@@ -192,17 +205,27 @@ def validate_stock_count(count_id: str):
 
     user_id = get_jwt_identity()
     for line in stock_count.lines:
-        if line.variance:
+        # Recalcul du delta reel : stock actuel en base peut differ du stock
+        # theorique si des mouvements ont eu lieu pendant la saisie.
+        # delta_reel = counted - stock_actuel
+        # stock_final = stock_actuel + delta_reel = counted >= 0
+        # => jamais de violation de la contrainte CHECK (quantity >= 0).
+        current_stock = get_or_create_stock_row(line.product_id, stock_count.branch_id)
+        actual_delta = line.counted_quantity - current_stock.quantity
+
+        if actual_delta != 0:
             apply_stock_movement(
                 product_id=line.product_id,
                 branch_id=stock_count.branch_id,
-                quantity=line.variance,
+                quantity=actual_delta,
                 movement_type=StockMovementType.AJUSTEMENT_INVENTAIRE.value,
                 reference_type="STOCK_COUNT",
                 reference_id=stock_count.id,
                 created_by_id=user_id,
-                comment="Regularisation inventaire " + stock_count.reference,
-                allow_negative=True,
+                comment="Regularisation inventaire " + stock_count.reference
+                    + " (theorique=" + str(line.theoretical_quantity)
+                    + ", compte=" + str(line.counted_quantity) + ")",
+                allow_negative=False,
             )
 
     stock_count.status = StockCountStatus.VALIDE.value

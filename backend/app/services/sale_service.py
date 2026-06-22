@@ -31,10 +31,11 @@ def _round_money(value: Decimal) -> Decimal:
 def create_sale(payload: dict, cashier_id: str) -> Sale:
     """Cree et valide une vente (UC-11/UC-12)."""
     discount_rate = payload["discount_rate"]
-    if not (0 <= discount_rate <= 100):
+    _ALLOWED_DISCOUNTS = {0, 5, 10, 15, 20}
+    if discount_rate not in _ALLOWED_DISCOUNTS:
         raise validation_error(
-            "Le taux de remise doit etre compris entre 0 et 100.",
-            details={"discount_rate": discount_rate},
+            "Le taux de remise doit etre 0, 5, 10, 15 ou 20 %.",
+            details={"discount_rate": discount_rate, "allowed": sorted(_ALLOWED_DISCOUNTS)},
         )
 
     branch_id = payload["branch_id"]
@@ -164,6 +165,20 @@ def create_refund(sale: Sale, payload: dict, user_id: str) -> Sale:
         raise ApiError(
             "REFUND_ALREADY_PENDING",
             "Un retour est deja en attente d'approbation pour cette vente.",
+            status_code=409,
+        )
+
+    # Bug #3 : empecher un double remboursement si un avoir est deja approuve.
+    existing_approved = Sale.query.filter_by(
+        refund_of_sale_id=sale.id,
+        status=SaleStatus.AVOIR_EMIS.value,
+    ).first()
+    if existing_approved is not None:
+        raise ApiError(
+            "REFUND_ALREADY_APPROVED",
+            "Un avoir a deja ete emis pour cette vente ("
+            + existing_approved.reference + "). "
+            "Il n'est pas possible de rembourser deux fois la meme vente.",
             status_code=409,
         )
 

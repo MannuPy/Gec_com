@@ -44,10 +44,10 @@ class ReceptionLineSchema(Schema):
     unit_purchase_price = fields.Decimal(as_string=True)
 
     def get_product_sku(self, obj):
-        return obj.product.sku
+        return obj.product.sku if obj.product else ""
 
     def get_product_name(self, obj):
-        return obj.product.name
+        return obj.product.name if obj.product else "Produit supprime"
 
 
 class ReceptionSchema(Schema):
@@ -70,4 +70,9 @@ class ReceptionSchema(Schema):
         return obj.branch.name
 
     def get_total_amount(self, obj):
-        return str(sum((line.quantity * line.unit_purchase_price) for line in obj.lines))
+        total = sum(
+            (line.quantity * line.unit_purchase_price)
+            for line in obj.lines
+            if line.unit_purchase_price is not None
+        )
+        return str(round(total, 2))

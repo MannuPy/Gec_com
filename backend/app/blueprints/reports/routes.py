@@ -572,8 +572,11 @@ def branches_compare():
     date_fin_str = request.args.get("date_fin")
 
     today = datetime.utcnow().date()
-    date_fin = datetime.strptime(date_fin_str, "%Y-%m-%d").date() if date_fin_str else today
-    date_debut = datetime.strptime(date_debut_str, "%Y-%m-%d").date() if date_debut_str else date_fin.replace(day=1)
+    try:
+        date_fin = datetime.strptime(date_fin_str, "%Y-%m-%d").date() if date_fin_str else today
+        date_debut = datetime.strptime(date_debut_str, "%Y-%m-%d").date() if date_debut_str else date_fin.replace(day=1)
+    except ValueError:
+        return jsonify({"error": "Format de date invalide. Utiliser YYYY-MM-DD."}), 400
 
     debut_dt = datetime.combine(date_debut, time.min)
     fin_dt = datetime.combine(date_fin, datetime.max.time())

@@ -151,7 +151,7 @@ def rfm_segments_view():
 
 
 @analytics_bp.get("/ml/models")
-@require_permission("analytics:read")
+@require_permission("analytics:read", "ml:train")
 def ml_models_view():
     """Registre des modeles entraines, pour tracabilite (RNF-17, RG-40)."""
     models = MLModel.query.order_by(MLModel.model_type, MLModel.trained_at.desc()).all()
