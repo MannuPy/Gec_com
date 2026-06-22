@@ -229,6 +229,21 @@ export default function AnalyticsPage() {
     queryKey: ["analytics-credit", riskLevel],
     queryFn:  () => analyticsApi.creditScores({ risk_level: riskLevel || undefined }),
     enabled:  tab === "credit",
+    // Toujours recharger quand l'onglet redevient actif (données potentiellement
+    // obsolètes si des crédits ont été soldés depuis le dernier entraînement).
+    refetchOnWindowFocus: true,
+    staleTime: 0,
+  });
+
+  // Informations sur le dernier entraînement CREDIT_SCORING (affiché dans le tab crédit).
+  const creditModelQuery = useQuery({
+    queryKey: ["analytics-credit-model"],
+    queryFn:  () =>
+      analyticsApi.mlModels().then(
+        (models) => models.find((m) => m.model_type === "CREDIT_SCORING" && m.is_active) ?? null
+      ),
+    enabled: tab === "credit",
+    staleTime: 60_000,
   });
 
   const anomaliesQuery = useQuery({
@@ -257,9 +272,29 @@ export default function AnalyticsPage() {
     staleTime: 300_000,
   });
 
+  // Mapping type de modèle → clé React Query des prédictions associées.
+  // Permet d'invalider automatiquement les données affichées après un entraînement.
+  const MODEL_QUERY_KEYS: Record<MlModelType, string> = {
+    CREDIT_SCORING:    "analytics-credit",
+    DEMAND_FORECAST:   "analytics-forecast",
+    ANOMALY_DETECTION: "analytics-anomalies",
+    ABC_XYZ:           "analytics-abc-xyz",
+    RFM_SEGMENTATION:  "analytics-rfm",
+  };
+
   const trainMutation = useMutation({
     mutationFn: (modelType: MlModelType) => analyticsApi.trainModel(modelType),
-    onSuccess:  () => queryClient.invalidateQueries({ queryKey: ["ml-models"] }),
+    onSuccess: (_data, modelType) => {
+      // Rafraîchir la liste des modèles
+      queryClient.invalidateQueries({ queryKey: ["ml-models"] });
+      // Rafraîchir la query de prédictions spécifique au modèle entraîné
+      const qk = MODEL_QUERY_KEYS[modelType];
+      if (qk) queryClient.invalidateQueries({ queryKey: [qk] });
+      // Rafraîchir aussi le résumé du modèle crédit affiché dans l'onglet Scoring
+      if (modelType === "CREDIT_SCORING") {
+        queryClient.invalidateQueries({ queryKey: ["analytics-credit-model"] });
+      }
+    },
   });
 
   const handleExport = async () => {
@@ -845,6 +880,46 @@ export default function AnalyticsPage() {
           <QueryState query={creditQuery} errorMessage="Impossible de charger le scoring crédit.">
             {(data) => (
               <div className="space-y-6">
+
+                {/* ── Bannière fraîcheur des données ── */}
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm text-amber-800">
+                    <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                    <span>
+                      {creditModelQuery.data ? (
+                        <>
+                          Scores calculés le{" "}
+                          <strong>{formatDateTime(creditModelQuery.data.trained_at)}</strong>
+                          {" — "}algorithme : <strong>{creditModelQuery.data.algorithm}</strong>.
+                          Ré-entraînez après chaque soldage pour actualiser les soldes affichés.
+                        </>
+                      ) : (
+                        <>Aucun modèle de scoring crédit entraîné. Lancez un premier entraînement.</>
+                      )}
+                    </span>
+                  </div>
+                  {canTrain && (
+                    <button
+                      type="button"
+                      className="btn-secondary shrink-0 text-xs"
+                      disabled={trainMutation.isPending}
+                      onClick={() => trainMutation.mutate("CREDIT_SCORING")}
+                    >
+                      {trainMutation.isPending && trainMutation.variables === "CREDIT_SCORING"
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <RefreshCw className="h-3.5 w-3.5" />
+                      }
+                      Ré-entraîner le scoring
+                    </button>
+                  )}
+                </div>
+
+                {trainMutation.isSuccess && trainMutation.data?.model_type === "CREDIT_SCORING" && (
+                  <div className="rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700">
+                    ✓ Entraînement terminé — les scores et soldes sont maintenant à jour.
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                   {/* Pie : distribution risque */}
                   <Section title="Distribution du risque crédit">

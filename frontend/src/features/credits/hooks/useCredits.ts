@@ -21,6 +21,10 @@ export function useSettleCredit() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: CREDITS_KEY });
       qc.invalidateQueries({ queryKey: CREDITS_HISTORY_KEY });
+      // Les scores crédit (Analytics > Scoring crédit) affichent solde_du_actuel
+      // issu du dernier entraînement ML — on invalide le cache pour forcer un
+      // re-fetch dès que l'onglet devient actif.
+      qc.invalidateQueries({ queryKey: ["analytics-credit"] });
     },
   });
 }
