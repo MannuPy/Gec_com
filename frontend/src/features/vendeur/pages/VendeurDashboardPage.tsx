@@ -320,10 +320,10 @@ export default function VendeurDashboardPage() {
                 />
                 <YAxis
                   type="category"
-                  dataKey="product_name"
+                  dataKey="name"
                   tick={{ fontSize: 10 }}
                   width={60}
-                  tickFormatter={(v: string) => v.length > 10 ? v.slice(0, 9) + "…" : v}
+                  tickFormatter={(v: string) => v && v.length > 10 ? v.slice(0, 9) + "…" : (v ?? "")}
                 />
                 <Tooltip
                   formatter={(_v, _name, p) => [

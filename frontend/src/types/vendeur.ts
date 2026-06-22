@@ -33,7 +33,6 @@ export interface VendeurHeure {
 export interface VendeurTopProduit {
   product_id: string;
   name: string;
-  sku: string;
   qte_vendue: number;
   ca: number;
 }

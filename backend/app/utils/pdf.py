@@ -269,7 +269,7 @@ def build_dashboard_report_pdf(dashboard_data: dict, top_products: list | None =
         elements.append(Paragraph("Produits les plus vendus", styles["Heading3"]))
         product_rows = [["Produit", "Reference (SKU)", "Quantite vendue"]]
         for p in top_products:
-            product_rows.append([p.get("name", "-"), p.get("sku", "-"), str(p.get("quantity_sold", 0))])
+            product_rows.append([p.get("product_name", "-"), p.get("sku", "-"), str(p.get("total_quantity", 0))])
 
         product_table = Table(product_rows, repeatRows=1, hAlign="LEFT")
         product_table.setStyle(
@@ -421,4 +421,4 @@ def build_credits_report_pdf(customers: list, branch_id: str | None = None) -> i
     )
 
     doc.build(elements)
-    return buf
+    re
