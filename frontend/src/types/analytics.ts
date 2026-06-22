@@ -106,9 +106,9 @@ export interface CreditScoreParams {
 
 export interface AnomalyItem {
   sale_id: string;
-  reference: string;
+  reference: string | null;     // peut être null si la vente n'a pas de référence
   branch_id: string;
-  cashier_name: string;
+  cashier_name: string | null;  // peut être null si le caissier a été supprimé
   montant_total: number;
   remise_taux: number;
   score: number;

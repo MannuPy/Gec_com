@@ -1076,8 +1076,8 @@ export default function AnalyticsPage() {
                       )}
                       {data.items.map((item) => (
                         <tr key={item.sale_id}>
-                          <td className="font-mono text-xs text-muted">{item.reference}</td>
-                          <td>{item.cashier_name}</td>
+                          <td className="font-mono text-xs text-muted">{item.reference ?? "—"}</td>
+                          <td>{item.cashier_name ?? <span className="text-xs text-muted">Inconnu</span>}</td>
                           <td className="text-right">{formatCurrency(item.montant_total)}</td>
                           <td className="text-right">{item.remise_taux} %</td>
                           <td className="text-right font-semibold text-amber-600">{item.score.toFixed(2)}</td>

@@ -220,7 +220,7 @@ def trigger_training(model_type: str):
             return jsonify({"status": "ok", "model_type": model_type_normalized, "result": result})
 
     result = task.run()
-    return jsonify({"status": "ok", "model_type": model_type_normalized, "result": result})
+    return jsonify({"status": "completed", "model_type": model_type_normalized, "result": result})
 
 
 @analytics_bp.post('/ml/train')
@@ -269,7 +269,7 @@ def trigger_training_body():
             return jsonify({'status': 'ok', 'model_type': model_type_normalized, 'result': result})
 
     result = task.run()
-    return jsonify({'status': 'ok', 'model_type': model_type_normalized, 'result': result})
+    return jsonify({'status': 'completed', 'model_type': model_type_normalized, 'result': result})
 
 
 # ---------------------------------------------------------------------------

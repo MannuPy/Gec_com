@@ -85,7 +85,7 @@ def _load_sales_dataframe_direct(days: int = 90) -> pd.DataFrame:
                 "cashier_id": sale.cashier_id,
                 "product_id": main_product_id,
                 "montant_total": float(sale.total),
-                "remise_taux": int(sale.discount_rate),
+                "remise_taux": int(sale.discount_rate or 0),
                 "heure_vente": sale.created_at.hour,
             }
         )
@@ -209,7 +209,7 @@ def train(days: int = 90) -> dict:
 def latest() -> list[dict]:
     return [
         {
-            "entity_id": p.entity_id,
+            "sale_id": p.entity_id,   # entity_id IS the sale_id — exposé sous le bon nom pour le frontend
             "model_id": p.model_id,
             "created_at": p.created_at.isoformat(),
             **p.payload_json,

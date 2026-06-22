@@ -149,7 +149,7 @@ def compute_dashboard_realtime(branch_id=None) -> dict:
                 "type": "ANOMALIE",
                 "severity": "WARNING",
                 "message": "Vente atypique " + str(item.get("reference")) + " : " + reasons,
-                "entity_id": item.get("sale_id"),
+                "entity_id": item.get("sale_id"),   # sale_id exposé par anomaly_detection.latest()
             }
         )
 
