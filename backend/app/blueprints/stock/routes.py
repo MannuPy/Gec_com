@@ -24,7 +24,13 @@ stock_movement_single_schema = StockMovementSchema()
 @require_permission("stock:read", "products:read", "sales:create")
 def list_stock():
     """Niveaux de stock, filtrables par site et par seuil minimum (RG-38)."""
-    query = Stock.query.join(Product).join(Branch)
+    # Jointures explicites via les attributs de relation pour eviter le
+    # conflit avec lazy="joined" defini sur le modele (SQLAlchemy 2.x).
+    query = (
+        db.session.query(Stock)
+        .join(Stock.product)
+        .join(Stock.branch)
+    )
 
     branch_id = request.args.get("branch_id")
     if branch_id:

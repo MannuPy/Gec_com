@@ -1,9 +1,10 @@
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Banknote,
   Receipt,
+  RefreshCw,
   ShieldAlert,
   TrendingUp,
   Loader2,
@@ -15,6 +16,7 @@ import {
   Users,
 } from "lucide-react";
 
+import { analyticsApi } from "@/api/endpoints/analytics";
 import { reportsApi } from "@/api/endpoints/reports";
 import { salesApi } from "@/api/endpoints/sales";
 import { getApiErrorMessage } from "@/api/client";
@@ -30,6 +32,7 @@ import { formatCurrency, formatDateTime, formatNumber } from "@/utils/format";
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user);
   const hasPermission = useAuthStore((s) => s.hasPermission);
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["dashboard", user?.branch_id],
@@ -41,7 +44,25 @@ export default function DashboardPage() {
   // Cf. doc 22-DASHBOARD-BI.md §22.2/§22.5 (SSE/polling).
   const realtime = useDashboardStream(user?.branch_id);
 
-  // Ventes hors-ligne synchronisées avec conflit de stock (RG-29).
+  // ML — Alertes IA : re-entrainement manuel (RG-ML-1).
+  const canTrainML = hasPermission("ml:train");
+  const mlModelsQuery = useQuery({
+    queryKey: ["ml-models"],
+    queryFn: () => analyticsApi.mlModels(),
+    enabled: canTrainML,
+  });
+  const demandForecastModel = mlModelsQuery.data?.find(
+    (m) => m.model_type === "DEMAND_FORECAST"
+  );
+  const trainMutation = useMutation({
+    mutationFn: () => analyticsApi.trainModel("DEMAND_FORECAST"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ml-models"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+
+  // Ventes hors-ligne synchronisees avec conflit de stock (RG-29).
   const canReviewConflicts = hasPermission("sales:read");
 
   const conflictsQuery = useQuery({
@@ -64,11 +85,11 @@ export default function DashboardPage() {
         <div className="card border-l-4 border-l-red-500">
           <h2 className="card-title flex items-center gap-2 text-red-700">
             <ShieldAlert className="h-4 w-4" />
-            Ventes synchronisées en conflit de stock ({conflictsCount})
+            Ventes synchronisees en conflit de stock ({conflictsCount})
           </h2>
           <p className="text-sm text-muted">
-            Ces ventes hors-ligne ont été synchronisées mais le stock était insuffisant au moment
-            de la synchronisation (RG-29). Une régularisation manuelle est requise.
+            Ces ventes hors-ligne ont ete synchronisees mais le stock etait insuffisant au moment
+            de la synchronisation (RG-29). Une regularisation manuelle est requise.
           </p>
 
           {conflicts.length > 0 && (
@@ -88,7 +109,7 @@ export default function DashboardPage() {
           )}
 
           <Link to="/ventes" className="mt-3 inline-block text-sm font-medium text-primary hover:underline">
-            Voir l'historique des ventes →
+            Voir l'historique des ventes
           </Link>
         </div>
       )}
@@ -225,19 +246,56 @@ export default function DashboardPage() {
           </div>
 
           <div className="card">
-            <h2 className="card-title flex items-center gap-2">
-              <Sparkles className="h-4 w-4" />
-              Alertes IA
-            </h2>
-            {realtime.data.alerts.length === 0 ? (
-              <p className="text-sm text-muted">Aucune alerte en cours.</p>
-            ) : (
-              <ul className="space-y-2">
-                {realtime.data.alerts.map((alert, index) => (
-                  <AlertRow key={`${alert.type}-${alert.entity_id ?? index}`} alert={alert} />
-                ))}
-              </ul>
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <h2 className="card-title flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  Alertes IA
+                </h2>
+                {demandForecastModel?.trained_at && (
+                  <p className="text-xs text-muted">
+                    Dernier entrainement : {formatDateTime(demandForecastModel.trained_at)}
+                  </p>
+                )}
+              </div>
+              {canTrainML && (
+                <button
+                  type="button"
+                  className="btn-secondary flex items-center gap-1.5 text-xs"
+                  disabled={trainMutation.isPending}
+                  onClick={() => trainMutation.mutate()}
+                  title="Re-entrainer le modele IA avec les donnees recentes"
+                >
+                  {trainMutation.isPending ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3 w-3" />
+                  )}
+                  {trainMutation.isPending ? "Entrainement..." : "Re-entrainer IA"}
+                </button>
+              )}
+            </div>
+            {trainMutation.isError && (
+              <p className="mt-2 text-xs text-red-600">
+                {getApiErrorMessage(trainMutation.error, "Erreur lors de l'entrainement.")}
+              </p>
             )}
+            {trainMutation.isSuccess && (
+              <p className="mt-2 text-xs text-green-700">
+                Modele re-entraine — les alertes seront mises a jour au prochain rafraichissement.
+              </p>
+            )}
+            <div className="mt-3">
+              {realtime.data.alerts.length === 0 ? (
+                <p className="text-sm text-muted">Aucune alerte en cours.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {realtime.data.alerts.map((alert, index) => (
+                    <AlertRow key={`${alert.type}-${alert.entity_id ?? index}`} alert={alert} />
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
