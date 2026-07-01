@@ -3,6 +3,9 @@ Flask-SQLAlchemy==3.1.1
 Flask-Migrate==4.0.7
 Flask-JWT-Extended==4.6.0
 Flask-Cors==4.0.1
+Flask-Limiter==3.8.0
+shap==0.45.1
+mlxtend==0.23.1
 flask-marshmallow==1.2.1
 marshmallow-sqlalchemy==1.0.0
 marshmallow==3.21.3
@@ -25,8 +28,13 @@ prophet==1.1.5
 joblib==1.4.2
 
 # --- Taches asynchrones (Celery + Redis) ---
-celery==5.4.0
-redis==5.0.7
+# NOTE PythonAnywhere : celery et redis sont INUTILES sur PythonAnywhere
+# (pas de worker background, pas de broker Redis disponible).
+# Les entraînements ML sont gérés par scripts/cron_train_all.py (Scheduled Tasks)
+# et les endpoints /ml/train/* utilisent des threads Python natifs.
+# Décommenter uniquement pour un déploiement VPS avec Redis.
+# celery==5.4.0
+# redis==5.0.7
 
 # --- Suivi/registre de modeles ML ---
 mlflow==2.14.3
@@ -36,3 +44,6 @@ reportlab==4.2.2
 
 # --- Export Excel (ventes, stock, credits — endpoints /reports/export/*) ---
 openpyxl==3.1.5
+
+# --- Monitoring erreurs (optionnel — désactivé si SENTRY_DSN absent) ---
+sentry-sdk[flask]==2.19.2

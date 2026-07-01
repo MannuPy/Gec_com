@@ -1,6 +1,6 @@
 # 19. Module Analyse de données — Vue d'ensemble
 
-> **Dernière mise à jour :** 19 juin 2026 — reflète l'état réel du code implémenté.
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
 
 ## 19.1 Positionnement
 
@@ -8,18 +8,21 @@ Ce module constitue le **cœur différenciant** de GesCom-BF. Il transforme les 
 
 ## 19.2 Modules analytiques implémentés
 
-| Module | Technique | Fichier | État |
-|---|---|---|---|
-| Classification ABC/XYZ | Règles pandas (déterministe) | `ml/abc_xyz.py` | ✅ Production |
-| Prévision de demande + alertes rupture | Seasonal Naive → sklearn → Prophet+XGBoost | `ml/demand_forecast.py` | ✅ Production |
-| Scoring crédit client | Rule-based → Random Forest + LogReg CV | `ml/credit_scoring.py` | ✅ Production |
-| Segmentation RFM | Quantiles → K-Means 4 clusters | `ml/rfm_segmentation.py` | ✅ Production |
-| Détection d'anomalies | Z-score → Isolation Forest | `ml/anomaly_detection.py` | ✅ Production |
-| Analyse de cohortes clients | Calcul direct SQL + Python | `blueprints/analytics/routes.py` | ✅ Production |
-| Customer Lifetime Value (CLV) | Formule heuristique | `blueprints/analytics/routes.py` | ✅ Production |
-| Dashboard temps réel | SSE / Polling 15s | `services/analytics_service.py` | ✅ Production |
-| Comparatif inter-succursales | Normalisation 0-100 + Radar | `blueprints/reports/routes.py` | ✅ Production |
-| Tendance des ventes | Agrégation SQL journalière | `services/analytics_service.py` | ✅ Production |
+| Module | Catégorie | Technique | Fichier | État |
+|---|---|---|---|---|
+| Classification ABC/XYZ | **Analytique BI** | Règles pandas déterministes (cumsum CA + CV) | `ml/abc_xyz.py` | ✅ Production |
+| Prévision de demande | **ML supervisé** | Seasonal Naive → sklearn → Prophet (jours fériés BF) — avec `data_confidence` | `ml/demand_forecast.py` | ✅ Production |
+| Scoring crédit client | **ML supervisé** | Rule-based → Random Forest + LogReg CV + **SHAP TreeExplainer** | `ml/credit_scoring.py` | ✅ Production |
+| Segmentation RFM | **ML non supervisé** | Quantiles → K-Means auto-k (Silhouette/Elbow) — 4 segments toujours présents | `ml/rfm_segmentation.py` | ✅ Production |
+| Probabilité de churn | **Heuristique statistique** | Décroissance exponentielle P=1-exp(-λ×R) — pas de ML | `ml/rfm_segmentation.py` | ✅ Production |
+| Détection d'anomalies | **ML non supervisé** | Z-score → Isolation Forest + raisons enrichies (10+ règles) | `ml/anomaly_detection.py` | ✅ Production |
+| Market Basket Analysis | **ML non supervisé** | Co-occurrence → Apriori (mlxtend) + règles d'association | `ml/market_basket.py` | ✅ Production |
+| Élasticité prix | **Analytique statistique** | Régression log-log (ln(qty) ~ ln(price)) par produit | `services/price_elasticity_service.py` | ✅ Production |
+| Indicateurs contexte africain BF | **Analytique BI** | Calcul temps réel (saison pluies, weekend boost, stress trésorerie, crédit informel) | `blueprints/analytics/routes.py` | ✅ Production |
+| Analyse de cohortes clients | **Analytique BI** | Calcul direct SQL + Python | `blueprints/analytics/routes.py` | ✅ Production |
+| Customer Lifetime Value (CLV) | **Heuristique** | Formule heuristique (panier moyen × fréquence × 24 mois) | `blueprints/analytics/routes.py` | ✅ Production |
+| Dashboard temps réel | **BI** | SSE / Polling 15s | `services/analytics_service.py` | ✅ Production |
+| Tendance des ventes | **Analytique BI** | Agrégation SQL journalière | `services/analytics_service.py` | ✅ Production |
 
 ## 19.3 Source des données
 

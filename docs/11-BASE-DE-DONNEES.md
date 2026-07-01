@@ -1,5 +1,7 @@
 # 11. Base de données — Vue d'ensemble
 
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 ## 11.1 Approche de modélisation
 
 La base de données est modélisée en trois niveaux successifs, conformément à la méthodologie de génie logiciel attendue :
@@ -17,7 +19,7 @@ Le **dictionnaire des données** (`15-DICTIONNAIRE-DES-DONNEES.md`) documente ch
 | Domaine | Tables |
 |---|---|
 | Organisation / Multi-tenant | `companies`, `branches` |
-| Sécurité & Utilisateurs | `users`, `roles`, `permissions`, `role_permissions` |
+| Sécurité & Utilisateurs | `users`, `roles`, `permissions`, `role_permissions`, `token_blocklist` |
 | Référentiels | `categories`, `brands`, `products`, `suppliers`, `customers` |
 | Stock & Mouvements | `stock`, `stock_movements` |
 | Approvisionnement | `supplier_receptions`, `supplier_reception_lines` |
@@ -100,3 +102,31 @@ erDiagram
 - Le schéma `public` contient les tables transverses : `companies` et `user_index`.
 - `SET search_path TO tenant_<slug>, public` est exécuté à chaque requête par le middleware.
 - Voir `27-MODELE-SAAS-MULTITENANT.md` pour le détail des migrations multi-schéma.
+
+## 11.6 Champs et tables ajoutés en v2 (migrations Alembic — 10 migrations dans `backend/migrations/versions/`)
+
+### Champ `users.must_change_password`
+
+| Colonne | Type | Défaut | Rôle |
+|---|---|---|---|
+| `must_change_password` | `BOOLEAN` | `TRUE` | RF-05 : si `TRUE`, le JWT contient le claim `must_change_password=true` et toutes les routes protégées retournent `403 PASSWORD_CHANGE_REQUIRED` jusqu'à ce que l'utilisateur change son mot de passe. |
+
+### Champ `sales.approved_by_id`
+
+| Colonne | Type | Nullable | Rôle |
+|---|---|---|---|
+| `approved_by_id` | `VARCHAR(36)` (FK → `users.id`) | Oui | RF-16/RG-23 : obligatoire (non-nullable applicatif) lorsque `discount_rate > 0`. Si absent avec remise, l'API retourne `422 VALIDATION_ERROR`. |
+
+### Table `token_blocklist`
+
+Stockage SQL des tokens JWT révoqués (remplace tout mécanisme Redis pour la révocation) :
+
+| Colonne | Type | Description |
+|---|---|---|
+| `id` | `INTEGER` (PK, auto-increment) | Identifiant interne |
+| `jti` | `VARCHAR` (UNIQUE, NOT NULL) | JWT ID unique du token révoqué |
+| `user_id` | `VARCHAR(36)` (FK → `users.id`) | Propriétaire du token |
+| `created_at` | `DATETIME` | Date de révocation |
+| `expires_at` | `DATETIME` | Date d'expiration naturelle (permet la purge des entrées obsolètes) |
+
+> À chaque requête authentifiée, le backend vérifie que le `jti` du token n'est pas présent dans `token_blocklist`. Pas de Redis requis : la table SQL est suffisante pour le volume cible.

@@ -1,5 +1,7 @@
 # 26. Gestion du mode Offline-First (PWA)
 
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 ## 26.1 Objectif et enjeu métier
 
 De nombreuses boutiques en zone périurbaine/rurale subissent des **coupures réseau fréquentes**. Le module de caisse (UC-11) doit rester **pleinement opérationnel hors-ligne** : recherche produit, application de remises encadrées, encaissement, impression/affichage de reçu — avec **synchronisation différée** dès le retour de connexion (RF-20, RNF-10, RG-28 à RG-30).
@@ -17,7 +19,7 @@ flowchart TB
 
     subgraph "Backend"
         API[API Flask]
-        PG[(PostgreSQL)]
+        DB[(MySQL — PythonAnywhere prod\nPostgreSQL — dev/VPS futur)]
     end
 
     UI -->|lecture catalogue/stock| IDB
@@ -26,7 +28,7 @@ flowchart TB
     SW -->|cache assets statiques\n(app shell)| UI
     SW -->|Background Sync API| SQ
     SQ -->|POST /sync/sales (par lot)| API
-    API --> PG
+    API --> DB
     API -->|réponse statut sync| SQ
 ```
 
@@ -39,6 +41,9 @@ flowchart TB
 | **File de synchronisation** | Ventes créées offline, en attente d'envoi | Table IndexedDB `sync_queue` |
 | **Détecteur de connexion** | Indicateur visuel + déclencheur de sync | `navigator.onLine` + `online`/`offline` events |
 | **Background Sync** | Tentative de sync automatique au retour réseau | Service Worker `Background Sync API` (fallback : sync manuelle au focus de l'app) |
+| **Mises à jour temps réel** | Stock, alertes en quasi-temps réel | **Polling périodique** (React Query `refetchInterval`) — les SSE sont désactivés sur PythonAnywhere (`DISABLE_SSE=true`) ; SSE disponibles uniquement en dev local |
+
+> **SSE désactivé en production (PythonAnywhere) :** l'environnement PythonAnywhere ne supporte pas les connexions SSE longues durée. La variable `DISABLE_SSE=true` est positionnée côté serveur ; le frontend détecte automatiquement ce mode et bascule sur un polling périodique via React Query.
 
 ## 26.4 Modèle de données local (IndexedDB / Dexie.js)
 

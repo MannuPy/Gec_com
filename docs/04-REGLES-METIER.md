@@ -35,7 +35,7 @@ Les règles de gestion (RG) sont la traduction opérationnelle des exigences fon
 - **RG-20** : Une vente est rattachée à une boutique et à un vendeur (utilisateur).
 - **RG-21** : Le tarif appliqué par défaut est le **tarif client simple**, sauf si le client est identifié comme **technicien** (champ `type_client`).
 - **RG-22** : Les remises possibles sont limitées à l'ensemble **{0 %, 5 %, 10 %, 15 %, 20 %}** — toute autre valeur est rejetée par l'API (validation stricte).
-- **RG-23** : Toute remise > 0 % doit obligatoirement référencer l'**administrateur ayant donné son accord** (`approved_by_user_id`), conformément à la pratique de l'accord verbal. Ce champ alimente le module d'audit et le détecteur d'anomalies (remises "auto-approuvées" par un vendeur = anomalie).
+- **RG-23** : Toute remise > 0 % doit obligatoirement référencer l'**administrateur ayant donné son accord** (`approved_by_id`), conformément à la pratique de l'accord verbal. Ce champ est **validé côté serveur** dans `sale_service.create_sale()` : l'API retourne `422 VALIDATION_ERROR` si `discount_rate > 0` et `approved_by_id` est absent. Ce champ alimente le module d'audit et le détecteur d'anomalies (remises "auto-approuvées" par un vendeur = anomalie).
 - **RG-24** : Une vente ne peut être validée si la quantité vendue dépasse le stock disponible de la boutique pour le produit concerné — **sauf** si la vente a été créée en mode hors-ligne (cf. RG-29).
 - **RG-25** : Le total d'une vente = somme des `(quantite × prix_unitaire_applique × (1 - remise))` de chaque ligne.
 - **RG-26** : Une vente à crédit (RF-18) nécessite un `customer_id` renseigné (le crédit anonyme est interdit) ; le solde du client est mis à jour (`solde_du += montant_credit`).
@@ -61,7 +61,7 @@ Les règles de gestion (RG) sont la traduction opérationnelle des exigences fon
 
 ## 4.8 Module IA (cf. `20-MACHINE-LEARNING.md`)
 
-- **RG-37** : Une prévision de rupture de stock est calculée **par couple (produit, site)** et republiée quotidiennement (tâche planifiée Celery).
+- **RG-37** : Une prévision de prévision de demande est calculée **par couple (produit, site)** et republiée quotidiennement (cron PythonAnywhere cron_train_all.py ou thread).
 - **RG-38** : Une alerte de rupture est déclenchée si `stock_disponible < seuil_min_stock` **OU** si la prévision Prophet indique un stock prévisionnel négatif dans les 7 jours.
 - **RG-39** : Le scoring de solvabilité est recalculé à chaque nouvelle transaction de vente à crédit du client concerné.
 - **RG-40** : Toute prédiction stockée référence la **version du modèle** utilisé (`model_version`) pour garantir la traçabilité (data lineage, cf. `21-PIPELINE-ETL.md`).
@@ -76,7 +76,8 @@ Les règles de gestion (RG) sont la traduction opérationnelle des exigences fon
 | Invariant | Vérification |
 |---|---|
 | `stock_disponible >= 0` (sauf vente offline en conflit) | Contrainte applicative + flag `EN_CONFLIT` |
-| `remise IN (0, 5, 10, 15, 20)` | Contrainte CHECK + validation Marshmallow |
+| `remise IN (0, 5, 10, 15, 20)` | Contrainte CHECK + validation Marshmallow + rejet API si non respecté |
+| `approved_by_id` obligatoire si `remise > 0` | Validation applicative dans `sale_service.create_sale()` → 422 si absent |
 | `prix_vente_technicien <= prix_vente_client_simple <= ... ` selon RG-09/RG-10 | Contrainte CHECK |
 | Vente validée immuable | Pas d'endpoint PUT/PATCH sur vente validée |
 | 1 dépôt central / entreprise | Contrainte unique partielle (`type='DEPOT_CENTRAL'`) |

@@ -21,7 +21,7 @@ PERMISSIONS ( id_permission, code_permission, description )
 ROLE_PERMISSIONS ( #id_role, #id_permission )
 
 USERS ( id_utilisateur, #id_entreprise, #id_role, #id_site, email, mot_de_passe_hash,
-        nom_complet, est_actif, derniere_connexion, date_creation )
+        nom_complet, est_actif, must_change_password, derniere_connexion, date_creation )
 
 CATEGORIES ( id_categorie, #id_entreprise, nom_categorie )
 
@@ -52,8 +52,9 @@ TRANSFERS ( id_transfert, #id_entreprise, #id_site_source, #id_site_destination,
 
 TRANSFER_LINES ( id_ligne_transfert, #id_transfert, #id_produit, quantite )
 
-SALES ( id_vente, #id_entreprise, #id_site, #id_vendeur, #id_client, statut,
-        canal, uuid_offline, montant_total, date_vente )
+SALES ( id_vente, #id_entreprise, #id_site, #id_vendeur, #id_client, #approved_by_id,
+        statut, canal, uuid_offline, montant_total, date_vente )
+    -- approved_by_id : UUID NULL REFERENCES users(id) — obligatoire si discount_rate > 0 (RF-16/RG-23)
 
 SALE_LINES ( id_ligne_vente, #id_vente, #id_produit, quantite, prix_unitaire_applique,
              type_prix )
@@ -74,6 +75,9 @@ ML_MODELS ( id_modele, type_modele, version, date_entrainement, metriques,
 
 PREDICTIONS ( id_prediction, #id_entreprise, #id_modele, #id_produit, #id_site,
                type_prediction, contenu, date_generation )
+
+TOKEN_BLOCKLIST ( id, jti, #user_id, created_at, expires_at )
+    -- jti : identifiant unique du JWT révoqué ; user_id NULL REFERENCES users(id)
 ```
 
 ## 13.3 Résolution des associations N:N et porteuses (Merise → MLD)
@@ -101,7 +105,7 @@ PREDICTIONS ( id_prediction, #id_entreprise, #id_modele, #id_produit, #id_site,
 | TRANSFERS | TRANSFER_LINES | `id_transfert` | CASCADE |
 | INVENTORIES | INVENTORY_LINES | `id_inventaire` | CASCADE |
 | SUPPLIER_RECEPTIONS | SUPPLIER_RECEPTION_LINES | `id_reception` | CASCADE |
-| USERS | SALES, AUDIT_LOGS, DISCOUNTS (approbateur), TRANSFERS (créateur) | `id_utilisateur` | RESTRICT |
+| USERS | SALES, AUDIT_LOGS, DISCOUNTS (approbateur), TRANSFERS (créateur), TOKEN_BLOCKLIST, SALES (approved_by_id) | `id_utilisateur` | RESTRICT |
 | ML_MODELS | PREDICTIONS | `id_modele` | RESTRICT |
 
 ## 13.5 Vérification de normalisation (3FN)

@@ -57,15 +57,19 @@ const SEG_PALETTE = [C.primary, C.secondary, C.purple, C.warning, C.danger, C.cy
 // ── Onglets ──────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "dashboard", label: "Tableau de bord"     },
-  { id: "forecast",  label: "Prévisions de demande"},
-  { id: "abc-xyz",   label: "ABC / XYZ"            },
-  { id: "rfm",       label: "Segmentation RFM"     },
-  { id: "credit",    label: "Scoring crédit"       },
-  { id: "anomalies", label: "Anomalies"            },
-  { id: "cohorts",   label: "Cohortes clients"     },
-  { id: "clv",       label: "Valeur vie client"    },
-  { id: "ml",        label: "Modèles IA"           },
+  { id: "dashboard",  label: "Tableau de bord"      },
+  { id: "forecast",   label: "Prévisions de demande" },
+  { id: "abc-xyz",    label: "ABC / XYZ"             },
+  { id: "rfm",        label: "Segmentation RFM"      },
+  { id: "churn",      label: "Risque Churn"          },
+  { id: "credit",     label: "Scoring crédit"        },
+  { id: "anomalies",  label: "Anomalies"             },
+  { id: "basket",     label: "Market Basket"         },
+  { id: "elasticity", label: "Élasticité prix"       },
+  { id: "african",    label: "Contexte BF"           },
+  { id: "cohorts",    label: "Cohortes clients"      },
+  { id: "clv",        label: "Valeur vie client"     },
+  { id: "ml",         label: "Modèles IA"            },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -82,6 +86,7 @@ const MODEL_LABELS: Record<MlModelType, string> = {
   ANOMALY_DETECTION: "Détection d'anomalies",
   ABC_XYZ:           "Classification ABC/XYZ",
   RFM_SEGMENTATION:  "Segmentation RFM",
+  MARKET_BASKET:     "Market Basket (Apriori)",
 };
 
 // ── Hook hauteur de graphique responsive ─────────────────────────────────────
@@ -252,6 +257,34 @@ export default function AnalyticsPage() {
     enabled:  tab === "anomalies",
   });
 
+  const churnQuery = useQuery({
+    queryKey: ["analytics-churn"],
+    queryFn:  () => analyticsApi.churnRisk({ min_probability: 0.5 }),
+    enabled:  tab === "churn",
+    staleTime: 300_000,
+  });
+
+  const basketQuery = useQuery({
+    queryKey: ["analytics-basket", branchId],
+    queryFn:  () => analyticsApi.marketBasket({ branch_id: branchId || undefined, min_lift: 1.2 }),
+    enabled:  tab === "basket",
+    staleTime: 300_000,
+  });
+
+  const elasticityQuery = useQuery({
+    queryKey: ["analytics-elasticity", branchId],
+    queryFn:  () => analyticsApi.priceElasticity({ branch_id: branchId || undefined, months: 6 }),
+    enabled:  tab === "elasticity",
+    staleTime: 300_000,
+  });
+
+  const africanQuery = useQuery({
+    queryKey: ["analytics-african"],
+    queryFn:  () => analyticsApi.africanContext(),
+    enabled:  tab === "african",
+    staleTime: 60_000,
+  });
+
   const mlModelsQuery = useQuery({
     queryKey: ["ml-models"],
     queryFn:  analyticsApi.mlModels,
@@ -280,6 +313,7 @@ export default function AnalyticsPage() {
     ANOMALY_DETECTION: "analytics-anomalies",
     ABC_XYZ:           "analytics-abc-xyz",
     RFM_SEGMENTATION:  "analytics-rfm",
+    MARKET_BASKET:     "analytics-basket",
   };
 
   const trainMutation = useMutation({
@@ -647,12 +681,13 @@ export default function AnalyticsPage() {
                         <th className="text-right">Prév. 30j</th>
                         <th className="text-right">Stock J+7</th>
                         <th className="text-right">Qté recommandée</th>
+                        <th className="text-center">Fiabilité</th>
                         <th>Alerte</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.items.length === 0 && (
-                        <tr><td colSpan={9} className="text-center text-muted">Aucune prévision disponible.</td></tr>
+                        <tr><td colSpan={10} className="text-center text-muted">Aucune prévision disponible.</td></tr>
                       )}
                       {data.items.map((item) => (
                         <tr key={`${item.product_id}-${item.branch_id}`}>
@@ -664,6 +699,13 @@ export default function AnalyticsPage() {
                           <td className="text-right">{formatNumber(item.forecast_30d)}</td>
                           <td className="text-right">{formatNumber(item.stock_prevu_j7)}</td>
                           <td className="text-right">{formatNumber(item.quantite_recommandee)}</td>
+                          <td className="text-center">
+                            {item.data_confidence != null ? (
+                              <span className={`badge ${item.data_confidence === "HIGH" ? "badge-success" : item.data_confidence === "MEDIUM" ? "badge-warning" : "badge-danger"}`}>
+                                {item.data_confidence}
+                              </span>
+                            ) : "—"}
+                          </td>
                           <td>
                             {item.alerte_rupture
                               ? <span className="badge badge-danger"><AlertTriangle className="mr-1 h-3 w-3" />Rupture</span>
@@ -839,6 +881,21 @@ export default function AnalyticsPage() {
                   </Section>
                 </div>
 
+                {/* Résumé par segment (toujours les 4 cartes) */}
+                {data.segment_summary && (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {data.segment_summary.map((seg, idx) => (
+                      <div key={seg.segment} className={`card ${seg.active ? "" : "opacity-40"}`}>
+                        <p className="text-xs text-muted">{seg.label}</p>
+                        <p className="text-xl font-bold" style={{ color: SEG_PALETTE[idx % SEG_PALETTE.length] }}>
+                          {formatNumber(seg.count)}
+                        </p>
+                        <p className="text-xs text-muted">{seg.recommended_action}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 <div className="overflow-x-auto">
                   <table className="table-base">
                     <thead>
@@ -848,12 +905,13 @@ export default function AnalyticsPage() {
                         <th className="text-right">Fréquence</th>
                         <th className="text-right">Valeur</th>
                         <th>Segment</th>
+                        <th className="text-center">Risque churn</th>
                         <th>Action recommandée</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.items.length === 0 && (
-                        <tr><td colSpan={6} className="text-center text-muted">Aucun client segmenté.</td></tr>
+                        <tr><td colSpan={7} className="text-center text-muted">Aucun client segmenté.</td></tr>
                       )}
                       {data.items.map((item) => (
                         <tr key={item.customer_id}>
@@ -862,6 +920,13 @@ export default function AnalyticsPage() {
                           <td className="text-right">{formatNumber(item.frequency)}</td>
                           <td className="text-right">{formatCurrency(item.monetary)}</td>
                           <td><span className="badge badge-info">{item.segment_label}</span></td>
+                          <td className="text-center">
+                            {item.churn_risk && (
+                              <span className={`badge ${item.churn_risk === "HIGH" ? "badge-danger" : item.churn_risk === "MEDIUM" ? "badge-warning" : "badge-success"}`}>
+                                {(item.churn_probability * 100).toFixed(0)} %
+                              </span>
+                            )}
+                          </td>
                           <td className="text-xs text-muted">{item.recommended_action}</td>
                         </tr>
                       ))}
@@ -1308,6 +1373,250 @@ export default function AnalyticsPage() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+          </QueryState>
+        )}
+
+        {/* ════════════════════════════════════
+            RISQUE CHURN (heuristique P=1-exp(-λ×R))
+        ════════════════════════════════════ */}
+        {tab === "churn" && (
+          <QueryState query={churnQuery} errorMessage="Impossible de charger les données churn.">
+            {(data) => (
+              <div className="space-y-4">
+                <p className="text-sm text-muted">
+                  Clients à risque de désengagement — probabilité calculée par décroissance exponentielle
+                  <span className="ml-1 font-mono text-xs">P = 1 − exp(−λ × récence)</span>,
+                  pondérée par la fréquence relative. Seuil affiché : ≥ 50 %.
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="table-base">
+                    <thead>
+                      <tr>
+                        <th>Client</th>
+                        <th className="text-right">Récence (j)</th>
+                        <th className="text-right">Fréquence</th>
+                        <th className="text-right">Montant</th>
+                        <th className="text-center">Risque</th>
+                        <th className="text-right">P(churn)</th>
+                        <th>Action recommandée</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.items.length === 0 && (
+                        <tr>
+                          <td colSpan={7} className="py-8 text-center text-sm text-muted">
+                            Aucun client à risque détecté (seuil ≥ 50 %).
+                          </td>
+                        </tr>
+                      )}
+                      {data.items.map((item) => (
+                        <tr key={item.customer_id} className="border-b border-surface last:border-0 hover:bg-surface/30">
+                          <td className="font-medium text-primary-dark">{item.customer_name}</td>
+                          <td className="text-right">{item.recency_days}</td>
+                          <td className="text-right">{item.frequency}</td>
+                          <td className="text-right">{formatCurrency(item.monetary)}</td>
+                          <td className="text-center">
+                            <span className={`badge ${item.churn_risk === "HIGH" ? "badge-danger" : item.churn_risk === "MEDIUM" ? "badge-warning" : "badge-success"}`}>
+                              {item.churn_risk === "HIGH" ? "Élevé" : item.churn_risk === "MEDIUM" ? "Moyen" : "Faible"}
+                            </span>
+                          </td>
+                          <td className="text-right font-semibold text-red-600">
+                            {(item.churn_probability * 100).toFixed(0)} %
+                          </td>
+                          <td className="text-sm text-muted">{item.churn_action}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </QueryState>
+        )}
+
+        {/* ════════════════════════════════════
+            MARKET BASKET ANALYSIS (Apriori)
+        ════════════════════════════════════ */}
+        {tab === "basket" && (
+          <QueryState query={basketQuery} errorMessage="Impossible de charger les règles d'association.">
+            {(data) => (
+              <div className="space-y-4">
+                <p className="text-sm text-muted">
+                  Règles d'association produits (algorithme Apriori) — identifie les produits fréquemment achetés
+                  ensemble pour les recommandations de vente croisée. Lift ≥ 1.2.
+                </p>
+                {data.items.length === 0 ? (
+                  <div className="rounded-lg bg-amber-50 px-4 py-6 text-center text-sm text-amber-700">
+                    Aucune règle trouvée. Lancez un entraînement Market Basket dans l'onglet <strong>Modèles IA</strong> après avoir enregistré suffisamment de ventes.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="table-base">
+                      <thead>
+                        <tr>
+                          <th>Si le client achète…</th>
+                          <th>…il achète aussi</th>
+                          <th className="text-right">Support</th>
+                          <th className="text-right">Confiance</th>
+                          <th className="text-right">Lift</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.items.map((rule, idx) => (
+                          <tr key={idx} className="border-b border-surface last:border-0 hover:bg-surface/30">
+                            <td className="font-medium text-primary-dark">{rule.antecedents.join(", ")}</td>
+                            <td className="text-green-700 font-medium">{rule.consequents.join(", ")}</td>
+                            <td className="text-right text-sm text-muted">{(rule.support * 100).toFixed(1)} %</td>
+                            <td className="text-right">{(rule.confidence * 100).toFixed(1)} %</td>
+                            <td className="text-right">
+                              <span className={`font-semibold ${rule.lift >= 2 ? "text-green-600" : rule.lift >= 1.5 ? "text-amber-600" : "text-muted"}`}>
+                                {rule.lift.toFixed(2)}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </QueryState>
+        )}
+
+        {/* ════════════════════════════════════
+            ÉLASTICITÉ PRIX (régression log-log)
+        ════════════════════════════════════ */}
+        {tab === "elasticity" && (
+          <QueryState query={elasticityQuery} errorMessage="Impossible de charger l'analyse d'élasticité.">
+            {(data) => (
+              <div className="space-y-4">
+                <p className="text-sm text-muted">
+                  Élasticité-prix des remises par produit — régression log-log sur les ventes avec remise.
+                  Une élasticité &lt; −1 indique que les remises stimulent significativement la demande.
+                </p>
+                {data.diagnostic && (
+                  <div className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-700">{data.diagnostic}</div>
+                )}
+                {data.items.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="table-base">
+                      <thead>
+                        <tr>
+                          <th>Produit</th>
+                          <th className="text-right">Élasticité</th>
+                          <th className="text-right">R²</th>
+                          <th>Interprétation</th>
+                          <th>Recommandation remise</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.items.map((item) => (
+                          <tr key={item.product_id} className="border-b border-surface last:border-0 hover:bg-surface/30">
+                            <td className="font-medium text-primary-dark">{item.product_name}</td>
+                            <td className="text-right font-mono">
+                              {item.elasticity != null ? (
+                                <span className={item.elasticity < -1 ? "text-green-600 font-semibold" : item.elasticity > 0 ? "text-red-500" : "text-muted"}>
+                                  {item.elasticity.toFixed(2)}
+                                </span>
+                              ) : "—"}
+                            </td>
+                            <td className="text-right text-muted">{item.r_squared != null ? item.r_squared.toFixed(2) : "—"}</td>
+                            <td className="text-sm">{item.interpretation}</td>
+                            <td className="text-sm text-muted">{item.discount_policy_recommendation}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </QueryState>
+        )}
+
+        {/* ════════════════════════════════════
+            CONTEXTE AFRICAIN BF
+        ════════════════════════════════════ */}
+        {tab === "african" && (
+          <QueryState query={africanQuery} errorMessage="Impossible de charger le contexte africain.">
+            {(data) => (
+              <div className="space-y-6">
+                {/* Événements calendaires actifs */}
+                <Section title="Événements calendaires actifs">
+                  {data.active_contexts.length === 0 ? (
+                    <p className="text-sm text-muted">Aucun événement calendaire particulier aujourd'hui.</p>
+                  ) : (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {data.active_contexts.map((ctx) => (
+                        <div key={ctx.event} className="card border-l-4 border-l-amber-400">
+                          <p className="font-semibold text-amber-700">{ctx.label}</p>
+                          <p className="mt-1 text-sm text-muted">{ctx.impact}</p>
+                          <p className="mt-2 text-xs font-medium text-primary">{ctx.stock_recommendation}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Section>
+
+                {/* Weekend boost */}
+                <Section title="Activité du jour">
+                  <div className="card">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-primary-dark">{data.weekend_boost.jour}</p>
+                        <p className="text-sm text-muted">{data.weekend_boost.recommandation}</p>
+                      </div>
+                      {data.weekend_boost.boost_estime_pct > 0 && (
+                        <span className="text-2xl font-bold text-green-600">
+                          +{data.weekend_boost.boost_estime_pct} %
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </Section>
+
+                {/* Stress trésorerie */}
+                <Section title="Indice de stress trésorerie">
+                  <div className={`card border-l-4 ${data.stress_tresorerie.niveau === "HIGH" ? "border-l-red-500" : data.stress_tresorerie.niveau === "MEDIUM" ? "border-l-amber-400" : "border-l-green-500"}`}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-primary-dark">{data.stress_tresorerie.label}</p>
+                        <p className="text-sm text-muted">{data.stress_tresorerie.recommandation}</p>
+                        {data.stress_tresorerie.taux_retard_pct != null && (
+                          <p className="mt-1 text-xs text-muted">Taux de retard : {data.stress_tresorerie.taux_retard_pct} %</p>
+                        )}
+                      </div>
+                      {data.stress_tresorerie.indice_stress_tresorerie != null && (
+                        <span className={`text-2xl font-bold ${data.stress_tresorerie.niveau === "HIGH" ? "text-red-600" : data.stress_tresorerie.niveau === "MEDIUM" ? "text-amber-500" : "text-green-600"}`}>
+                          {(data.stress_tresorerie.indice_stress_tresorerie * 100).toFixed(0)} %
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </Section>
+
+                {/* Crédit informel */}
+                <Section title="Propension au crédit informel">
+                  <div className="card">
+                    <p className="text-sm">{data.credit_informel.interpretation}</p>
+                    {data.credit_informel.propension_credit_informel != null && (
+                      <div className="mt-2 flex items-center gap-3">
+                        <div className="h-2 flex-1 rounded-full bg-surface">
+                          <div
+                            className="h-2 rounded-full bg-orange-400"
+                            style={{ width: `${Math.round(data.credit_informel.propension_credit_informel * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-sm font-semibold text-orange-600">
+                          {Math.round(data.credit_informel.propension_credit_informel * 100)} %
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </Section>
               </div>
             )}
           </QueryState>

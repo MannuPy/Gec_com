@@ -66,6 +66,8 @@ export interface DemandForecastItem {
   alerte_rupture: boolean;
   quantite_recommandee: number;
   algorithm: string;
+  /** Fiabilité de la prévision : "HIGH" | "MEDIUM" | "LOW" (basé sur la taille de l'historique) */
+  data_confidence: "HIGH" | "MEDIUM" | "LOW" | null;
 }
 
 export interface DemandForecastParams {
@@ -147,7 +149,7 @@ export interface AbcXyzParams {
 }
 
 // ---------------------------------------------------------------------------
-// RF-26 : segmentation RFM des clients
+// RF-26 : segmentation RFM des clients + churn heuristique
 // ---------------------------------------------------------------------------
 
 export interface RfmSegmentItem {
@@ -159,10 +161,141 @@ export interface RfmSegmentItem {
   segment: string;
   segment_label: string;
   recommended_action: string;
+  // Churn heuristique (P = 1 - exp(-λ×R))
+  churn_probability: number;
+  churn_risk: "HIGH" | "MEDIUM" | "LOW";
+  churn_action: string;
+}
+
+export interface RfmSegmentSummary {
+  segment: string;
+  label: string;
+  recommended_action: string;
+  count: number;
+  active: boolean;
+}
+
+export interface RfmSegmentsResponse {
+  items: RfmSegmentItem[];
+  count: number;
+  segment_summary: RfmSegmentSummary[];
+  segments_actifs: string[];
 }
 
 export interface RfmSegmentParams {
   segment?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Churn risk — endpoint dédié /analytics/churn-risk
+// ---------------------------------------------------------------------------
+
+export interface ChurnRiskResponse {
+  items: RfmSegmentItem[];
+  count: number;
+  min_probability: number;
+}
+
+// ---------------------------------------------------------------------------
+// Market Basket Analysis — /analytics/basket (RF-26)
+// ---------------------------------------------------------------------------
+
+export interface MarketBasketRule {
+  antecedents: string[];
+  consequents: string[];
+  support: number;
+  confidence: number;
+  lift: number;
+  branch_id?: string | null;
+}
+
+export interface MarketBasketResponse {
+  items: MarketBasketRule[];
+  count: number;
+}
+
+// ---------------------------------------------------------------------------
+// Élasticité prix — /analytics/price-elasticity
+// ---------------------------------------------------------------------------
+
+export interface PriceElasticityItem {
+  product_id: string;
+  product_name: string;
+  elasticity: number | null;
+  r_squared: number | null;
+  interpretation: string;
+  discount_policy_recommendation: string;
+  data_points: number;
+}
+
+export interface PriceElasticityResponse {
+  items: PriceElasticityItem[];
+  count: number;
+  diagnostic: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Contexte africain BF — /analytics/african-context
+// ---------------------------------------------------------------------------
+
+export interface AfricanContextEvent {
+  event: string;
+  label: string;
+  impact: string;
+  stock_recommendation: string;
+  active: boolean;
+}
+
+export interface WeekendBoostInfo {
+  actif: boolean;
+  jour: string;
+  boost_estime_pct: number;
+  recommandation: string;
+}
+
+export interface StressInfo {
+  indice_stress_tresorerie: number | null;
+  niveau: "LOW" | "MEDIUM" | "HIGH" | "UNKNOWN";
+  label: string;
+  taux_retard_pct?: number;
+  paiements_analyses?: number;
+  recommandation: string;
+}
+
+export interface CreditInformelInfo {
+  propension_credit_informel: number | null;
+  pct?: number;
+  clients_actifs_90j?: number;
+  clients_sans_historique_formel?: number;
+  interpretation: string;
+}
+
+export interface AfricanContextResponse {
+  date: string;
+  active_contexts: AfricanContextEvent[];
+  count: number;
+  weekend_boost: WeekendBoostInfo;
+  stress_tresorerie: StressInfo;
+  credit_informel: CreditInformelInfo;
+  saison_pluies: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Évaluation K optimal — /analytics/rfm-segments/evaluate-k
+// ---------------------------------------------------------------------------
+
+export interface KMeansEvaluation {
+  k: number;
+  silhouette: number | null;
+  davies_bouldin_index: number | null;
+  inertia: number | null;
+}
+
+export interface RfmEvaluateKResponse {
+  optimal_k: number;
+  evaluation: KMeansEvaluation[];
+  n_clients: number;
+  interpretation?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +308,7 @@ export const ML_MODEL_TYPES = [
   "ANOMALY_DETECTION",
   "ABC_XYZ",
   "RFM_SEGMENTATION",
+  "MARKET_BASKET",
 ] as const;
 export type MlModelType = (typeof ML_MODEL_TYPES)[number];
 

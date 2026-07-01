@@ -1,3 +1,5 @@
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 # 5. Architecture fonctionnelle
 
 ## 5.1 Organisation hiérarchique
@@ -71,8 +73,8 @@ graph LR
 | 7 | Ventes | Saisie des ventes, remises, crédit, offline | Vendeur |
 | 8 | Inventaires | Comptages physiques, ajustements de stock | Magasinier, Vendeur (boutique) |
 | 9 | Rapports | Tableaux de bord, exports PDF | Administrateur |
-| 10 | Analytics | ABC/XYZ, segmentation clients, KPIs | Administrateur |
-| 11 | IA | Prévisions, scoring, détection d'anomalies | Système (automatisé) + Administrateur |
+| 10 | Analytics BI | ABC/XYZ *(règles déterministes)*, segmentation clients, KPIs, élasticité prix, contexte africain BF | Administrateur |
+| 11 | IA / ML | Prévisions (Prophet), scoring crédit (RF+SHAP), anomalies (Isolation Forest), RFM (K-Means), Market Basket (Apriori), churn *(heuristique)* | Système (cron nocturne) + Administrateur |
 | 12 | Audit | Journalisation, traçabilité, sécurité | Système + Administrateur |
 
 ## 5.3 Cycle métier global
@@ -103,7 +105,7 @@ flowchart TD
     end
     subgraph Serveur
         API[API Flask]
-        DB[(PostgreSQL)]
+        DB[(MySQL / PostgreSQL)]
         Q[File de synchronisation]
     end
     UI -->|Vente saisie| IDB
@@ -121,18 +123,22 @@ flowchart TD
 flowchart LR
     A[(sales / sale_lines)] --> B[ETL Nettoyage & Agrégation]
     B --> C[(Feature Store)]
-    C --> D1[Prophet - Prévision rupture]
-    C --> D2[XGBoost - Affinage prévision]
-    C --> D3[Random Forest - Scoring crédit]
-    C --> D4[Isolation Forest - Anomalies]
-    C --> D5[ABC/XYZ - Classification]
+    C --> D1[Prophet - Prévision demande]
+    C --> D2[Random Forest + SHAP - Scoring crédit]
+    C --> D3[Isolation Forest - Anomalies]
+    C --> D4[K-Means - Segmentation RFM + Churn heuristique]
+    C --> D5[Apriori - Market Basket]
+    C --> D6[Règles pandas - ABC/XYZ BI]
+    C --> D7[Régression log-log - Élasticité prix]
     D1 --> E[(predictions)]
     D2 --> E
     D3 --> E
     D4 --> E
     D5 --> E
+    D6 --> E
+    D7 --> E
     E --> F[Dashboard BI temps réel]
-    E --> G[Alertes Celery -> Administrateur]
+    E --> G[Alertes via threads + cron PythonAnywhere]
 ```
 
 ## 5.6 Synthèse des interactions inter-modules

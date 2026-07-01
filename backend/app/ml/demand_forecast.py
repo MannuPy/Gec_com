@@ -95,14 +95,90 @@ def _forecast_seasonal_naive(series: pd.Series) -> tuple[float, float, str]:
     return forecast_7d, forecast_30d, "SEASONAL_NAIVE"
 
 
+
+
+def _forecast_prophet(series: pd.Series) -> tuple[float, float, str]:
+    """
+    Prevision avec Prophet + evenements calendaires du Burkina Faso.
+    Necessite au moins 30 jours d historique.
+    Prophet est installe (requirements.txt v1.1.5) et importe ici
+    localement pour eviter une erreur d importation au demarrage si
+    l installation est absente.
+    """
+    from prophet import Prophet  # import local — Prophet peut etre lent a charger
+
+    # Evenements culturels du Burkina Faso comme regresseurs saisonniers
+    burkina_events = pd.DataFrame([
+        {"holiday": "tabaski",       "ds": "2025-06-07", "lower_window": -7, "upper_window": 3},
+        {"holiday": "tabaski",       "ds": "2026-05-27", "lower_window": -7, "upper_window": 3},
+        {"holiday": "ramadan_start", "ds": "2025-03-01", "lower_window": -3, "upper_window": 30},
+        {"holiday": "ramadan_start", "ds": "2026-02-18", "lower_window": -3, "upper_window": 30},
+        {"holiday": "independence",  "ds": "2025-08-05", "lower_window": -1, "upper_window": 1},
+        {"holiday": "independence",  "ds": "2026-08-05", "lower_window": -1, "upper_window": 1},
+        {"holiday": "noel",          "ds": "2025-12-25", "lower_window": -5, "upper_window": 2},
+        {"holiday": "noel",          "ds": "2026-12-25", "lower_window": -5, "upper_window": 2},
+    ])
+    burkina_events["ds"] = pd.to_datetime(burkina_events["ds"])
+
+    # Format Prophet : colonnes ds (date) et y (valeur)
+    df_prophet = pd.DataFrame({
+        "ds": pd.to_datetime(series.index),
+        "y": series.values.astype(float),
+    })
+
+    model = Prophet(
+        yearly_seasonality=True,
+        weekly_seasonality=True,
+        daily_seasonality=False,
+        seasonality_mode="multiplicative",  # Adapte aux pics forts (Tabaski, etc.)
+        holidays=burkina_events,
+    )
+    model.fit(df_prophet)
+
+    # Previsions sur les 30 prochains jours
+    future = model.make_future_dataframe(periods=30, freq="D")
+    forecast = model.predict(future)
+
+    # Extraire les 30 jours futurs (les N derniers du DataFrame predit)
+    preds = forecast.tail(30)["yhat"].clip(lower=0).values
+    forecast_7d = float(preds[:7].sum())
+    forecast_30d = float(preds.sum())
+    return forecast_7d, forecast_30d, "PROPHET_BURKINA_HOLIDAYS"
+
+
+def _compute_data_confidence(series_len: int, algorithm: str) -> str:
+    """Évalue la confiance dans la prévision selon la quantité de données et l'algorithme utilisé.
+
+    Niveaux :
+      HIGH   — Prophet + ≥ 60 jours de données historiques
+      MEDIUM — LinearRegression + ≥ 14 jours, ou Prophet + 30-59 jours
+      LOW    — Seasonal Naive, ou moins de 14 jours de données
+    """
+    if algorithm == "PROPHET_BURKINA_HOLIDAYS" and series_len >= 60:
+        return "HIGH"
+    if algorithm in ("PROPHET_BURKINA_HOLIDAYS", "SKLEARN_LINEAR_TREND") and series_len >= 14:
+        return "MEDIUM"
+    return "LOW"
+
+
 def _forecast_series(series: pd.Series) -> tuple[float, float, str]:
-    """Choisit et execute l'algorithme de prevision le plus adapte.
+    """Cascade d algorithmes : Prophet (>=30j) -> LinearRegression (>=14j) -> Seasonal Naive.
 
     Retourne (forecast_7d, forecast_30d, algorithm_reel_utilise).
-    Le label reflète l'algorithme RÉELLEMENT exécuté, pas celui souhaité.
+    Le label reflete l algorithme REELLEMENT execute, pas celui souhaite.
+    Prophet est utilise en priorite quand disponible et quand l historique
+    est suffisant (>= 30 jours). En cas d erreur Prophet (CPU, memoire,
+    donnees insuffisantes), bascule automatiquement sur LinearRegression.
     """
+    if HAS_PROPHET and len(series) >= 30:
+        try:
+            return _forecast_prophet(series)
+        except Exception:
+            pass  # Bascule sur LinearRegression si Prophet echoue
+
     if HAS_SKLEARN and len(series) >= MIN_HISTORY_DAYS:
         return _forecast_sklearn(series)  # retourne "SKLEARN_LINEAR_TREND"
+
     return _forecast_seasonal_naive(series)  # retourne "SEASONAL_NAIVE"
 
 
@@ -172,6 +248,8 @@ def train(months: int = 6) -> dict:
                     "alerte_rupture": is_alert,
                     "quantite_recommandee": round(quantite_recommandee, 2),
                     "algorithm": algorithm,
+                    "data_confidence": _compute_data_confidence(len(series), algorithm),
+                    "nb_jours_historique": len(series),
                 },
             }
         )

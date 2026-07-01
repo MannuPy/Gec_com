@@ -1,5 +1,7 @@
 # 34. Solution : Build du frontend React sans Node.js sur PythonAnywhere
 
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 ## Problème
 
 PythonAnywhere ne fournit pas Node.js/npm dans son environnement Bash standard. Il est donc impossible d'exécuter `npm run build` directement sur PythonAnywhere pour compiler le frontend React/Vite.
@@ -191,7 +193,7 @@ Dans votre dépôt GitHub → **Settings** → **Secrets and variables** → **A
 | Nom du secret | Valeur |
 |---|---|
 | `PA_USERNAME` | Votre username PythonAnywhere (ex. `mannu`) |
-| `PA_SSH_PASSWORD` | Votre mot de passe PythonAnywhere (login) |
+| `PA_SSH_PASSWORD` | Votre mot de passe PythonAnywhere (login) — utilisé par `sshpass` dans le workflow CI/CD |
 | `PA_API_TOKEN` | Token API PythonAnywhere (voir §C.2) |
 
 ### C.2 Générer un token API PythonAnywhere

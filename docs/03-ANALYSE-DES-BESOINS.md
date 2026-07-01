@@ -10,7 +10,7 @@
 | RF-02 | Le système doit permettre la connexion via email/mot de passe avec délivrance d'un JWT (access + refresh token) | Must |
 | RF-03 | Le système doit permettre à l'administrateur de créer, modifier, désactiver des comptes utilisateurs et leur attribuer un rôle | Must |
 | RF-04 | Le système doit permettre la déconnexion et l'invalidation du refresh token | Must |
-| RF-05 | Le système doit forcer le changement de mot de passe à la première connexion | Should |
+| RF-05 | Le système doit forcer le changement de mot de passe à la première connexion — **validé côté serveur** : `must_change_password=True` dans le JWT → 403 `PASSWORD_CHANGE_REQUIRED` sur toutes les routes protégées (sauf `/auth/change-password`) | Should |
 
 ### Module Produits & Catalogue
 
@@ -41,7 +41,7 @@
 | ID | Exigence | Priorité |
 |---|---|---|
 | RF-15 | Le système doit permettre d'enregistrer une vente avec un ou plusieurs produits, en appliquant le tarif client simple ou technicien selon le profil client | Must |
-| RF-16 | Le système doit permettre l'application d'une remise parmi {5 %, 10 %, 15 %, 20 %} sur une vente, avec enregistrement de l'identité de l'administrateur ayant donné son accord verbal | Must |
+| RF-16 | Le système doit permettre l'application d'une remise parmi {5 %, 10 %, 15 %, 20 %} sur une vente, avec enregistrement de l'identité de l'administrateur ayant donné son accord verbal (`approved_by_id`) — **validé côté serveur** dans `sale_service.create_sale()` → 422 si `discount_rate > 0` et `approved_by_id` absent (RG-23) | Must |
 | RF-17 | Le système doit décrémenter le stock de la boutique au moment de la validation de la vente | Must |
 | RF-18 | Le système doit permettre la vente à crédit pour les clients identifiés, avec suivi du solde dû | Should |
 | RF-19 | Le système doit permettre de générer un reçu de vente (PDF ou impression) | Should |
@@ -60,11 +60,15 @@
 | ID | Exigence | Priorité |
 |---|---|---|
 | RF-24 | Le système doit fournir un tableau de bord avec chiffre d'affaires, marges, top produits, par boutique et consolidé | Must |
-| RF-25 | Le système doit fournir une prévision de rupture de stock par produit/boutique à horizon 7-30 jours | Must |
-| RF-26 | Le système doit fournir un scoring de solvabilité pour les clients à crédit | Should |
-| RF-27 | Le système doit détecter et signaler les anomalies (ventes suspectes, remises excessives, mouvements de stock inhabituels) | Should |
-| RF-28 | Le système doit fournir une classification ABC/XYZ des produits avec recommandations de réapprovisionnement | Should |
+| RF-25 | Le système doit fournir une prévision de demande par produit/boutique à horizon 7-30 jours (Prophet + fallback sklearn + Seasonal Naive) avec indicateur de confiance (`data_confidence`) | Must |
+| RF-26 | Le système doit fournir un scoring de solvabilité pour les clients à crédit, avec explication SHAP des facteurs déterminants | Should |
+| RF-27 | Le système doit détecter et signaler les anomalies (ventes suspectes, remises excessives, mouvements de stock inhabituels) avec raisons détaillées | Should |
+| RF-28 | Le système doit fournir une classification ABC/XYZ des produits avec recommandations de réapprovisionnement *(analytique BI — règles déterministes)* | Should |
 | RF-29 | Le système doit permettre l'export des rapports en PDF | Should |
+| RF-33 | Le système doit fournir une analyse des paniers d'achat (Market Basket Analysis — Apriori) pour identifier les produits fréquemment achetés ensemble | Could |
+| RF-34 | Le système doit calculer l'élasticité-prix par produit et recommander une politique tarifaire optimale | Could |
+| RF-35 | Le système doit fournir des indicateurs adaptés au contexte africain BF (saison des pluies, week-end boost, stress de trésorerie, crédit informel) | Could |
+| RF-36 | Le système doit exposer un endpoint `/health` retournant l'état de la base de données, des modèles ML actifs et l'uptime | Should |
 
 ### Module Audit & Sécurité
 
@@ -91,8 +95,8 @@
 | RNF-11 | Sauvegarde | Fréquence de backup PostgreSQL | **quotidienne**, rétention 30 jours + backup hebdomadaire 6 mois |
 | RNF-12 | Reprise d'activité | RTO (Recovery Time Objective) | **< 4 heures** |
 | RNF-13 | Reprise d'activité | RPO (Recovery Point Objective) | **< 24 heures** |
-| RNF-14 | Maintenabilité | Couverture de tests automatisés | **≥ 80 %** (backend et frontend) |
-| RNF-15 | Portabilité | Déploiement | **conteneurisé (Docker)**, reproductible sur tout environnement Linux |
+| RNF-14 | Maintenabilité | Tests automatisés | **155 tests pytest** — 127 unitaires ML + 17 intégration API + 15 sécurité + 12 RBAC — pipeline CI bloque le déploiement si échec |
+| RNF-15 | Portabilité | Déploiement | PythonAnywhere (production académique) + Docker Compose (cible production) |
 | RNF-16 | Accessibilité | Compatibilité interface | **français + mooré**, design responsive (tablette/mobile) |
 | RNF-17 | Observabilité | Traçabilité des prédictions IA | chaque prédiction doit être traçable jusqu'à la donnée source et la version du modèle (data lineage) |
 | RNF-18 | Conformité | Rétention des logs d'audit | **1 an minimum** |
@@ -101,9 +105,9 @@
 
 | Priorité | Nombre d'exigences RF | Exemples |
 |---|---|---|
-| **Must** | 19 | Authentification, RBAC, ventes, stock, transferts, inventaires, dashboard, prévision de rupture, offline, audit |
-| **Should** | 9 | Crédit client, reçu PDF, scoring, anomalies, ABC/XYZ, export PDF, mot de passe initial |
-| **Could** | 1 | Libellés produits en mooré |
+| **Must** | 19 | Authentification, RBAC, ventes, stock, transferts, inventaires, dashboard, prévision de demande, offline, audit, /health |
+| **Should** | 10 | Crédit client+SHAP, reçu PDF, scoring, anomalies enrichies, ABC/XYZ, export PDF, mot de passe initial |
+| **Could** | 4 | Libellés en mooré, Market Basket, élasticité prix, contexte africain BF |
 | **Won't (cette version)** | - | App mobile native, mobile money (cf. `31-CONCLUSION-PERSPECTIVES.md`) |
 
 ## 3.4 Traçabilité besoins → modules
@@ -116,5 +120,5 @@
 | Dépôt & Transferts | RF-12 à RF-14 | `05-ARCHITECTURE-FONCTIONNELLE.md` |
 | Ventes | RF-15 à RF-20 | `06-CAS-DUTILISATION.md`, `26-GESTION-OFFLINE-PWA.md` |
 | Inventaires | RF-21 à RF-23 | `11-BASE-DE-DONNEES.md` |
-| Rapports & IA | RF-24 à RF-29 | `19-ANALYSE-DE-DONNEES.md`, `20-MACHINE-LEARNING.md`, `22-DASHBOARD-BI.md` |
+| Rapports & IA | RF-24 à RF-36 | `19-ANALYSE-DE-DONNEES.md`, `20-MACHINE-LEARNING.md`, `22-DASHBOARD-BI.md`, `ANALYTIQUE-ML-IA-COMPLET.md` |
 | Audit | RF-30 à RF-32 | `28-MONITORING-OBSERVABILITE.md` |

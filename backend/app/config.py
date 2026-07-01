@@ -129,9 +129,13 @@ class DevConfig(BaseConfig):
 
 class TestingConfig(BaseConfig):
     TESTING = True
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "TEST_DATABASE_URL",
-        "postgresql+psycopg2://gescom:gescom_dev_password@localhost:5432/gescom_bf_test",
+    # Priorité : TEST_DATABASE_URL > DATABASE_URL > défaut PostgreSQL local.
+    # DATABASE_URL est positionné en fallback pour permettre aux tests de
+    # tourner sur SQLite in-memory (conftest.py) sans PostgreSQL installé.
+    SQLALCHEMY_DATABASE_URI = (
+        os.environ.get("TEST_DATABASE_URL")
+        or os.environ.get("DATABASE_URL")
+        or "postgresql+psycopg2://gescom:gescom_dev_password@localhost:5432/gescom_bf_test"
     )
 
 

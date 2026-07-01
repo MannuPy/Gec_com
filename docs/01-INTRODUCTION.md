@@ -1,3 +1,5 @@
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 # 1. Introduction & Contexte
 
 ## 1.1 Contexte général
@@ -38,7 +40,9 @@ Une analyse détaillée des solutions existantes (Odoo, Sage, Wave ERP, solution
 - Gestion des ventes avec double tarification (client simple / technicien) et remises encadrées
 - Gestion des inventaires physiques
 - Rapports décisionnels et tableaux de bord
-- Module d'analyse de données et d'intelligence artificielle (prévision de rupture, scoring crédit, détection d'anomalies, ABC/XYZ)
+- Module d'analyse de données et d'intelligence artificielle : prévision de demande (Prophet), scoring crédit (Random Forest + SHAP), détection d'anomalies (Isolation Forest), segmentation RFM (K-Means), Market Basket Analysis (Apriori), élasticité prix, indicateurs contexte africain BF
+- Classification ABC/XYZ des produits (analytique BI — règles déterministes)
+- Estimation probabilité de churn (modèle heuristique statistique)
 - Mode offline-first (PWA) pour la vente en boutique
 - Architecture SaaS multi-tenant (plusieurs entreprises clientes)
 - Module d'audit et de sécurité (RBAC, logs)
@@ -61,7 +65,7 @@ Une analyse détaillée des solutions existantes (Odoo, Sage, Wave ERP, solution
 | O5 | Sécuriser l'accès aux données | RBAC + JWT + chiffrement | 0 accès non autorisé lors des tests de sécurité | Oui | Oui | Sprint 2 |
 | O6 | Détecter les anomalies de gestion | Isolation Forest sur ventes/remises/stocks | Taux de faux positifs < 10 % sur jeu de test | Oui | Oui | Sprint 10 |
 | O7 | Fournir un tableau de bord décisionnel | Dashboard React + WebSocket | Temps de rafraîchissement < 2 s | Oui | Oui | Sprint 9-10 |
-| O8 | Couvrir le code par des tests automatisés | pytest + Jest | Couverture ≥ 80 % | Oui | Oui | Continu |
+| O8 | Couvrir les fonctions ML et la sécurité par des tests automatisés | pytest (155 tests : 127 ML unitaires + 17 intégration API + 15 sécurité RBAC + 12 RBAC rôles) | 155 tests passent — pipeline CI bloque le déploiement si échec | Oui ✅ | Oui | Sprint 12 |
 
 ## 1.6 Utilisateurs du système
 

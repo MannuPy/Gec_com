@@ -1,5 +1,7 @@
 # 23. Plan de développement — Méthodologie Agile
 
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 ## 23.1 Méthodologie retenue
 
 **Scrum**, adapté à un projet académique en solo/petite équipe :
@@ -20,10 +22,12 @@
 | E5 — Mode Offline-First (PWA) | RF-20, RNF-10 | Sprint 6-7 |
 | E6 — Inventaires | RF-21 à RF-23 | Sprint 5-6 |
 | E7 — Rapports & Dashboard | RF-24, RF-29 | Sprint 9-10 |
-| E8 — Module IA (prévisions, scoring, anomalies, ABC/XYZ) | RF-25 à RF-28 | Sprint 8-10 |
+| E8 — Module analytique & IA | RF-25 à RF-36 | Sprint 8-11 |
 | E9 — Audit & Sécurité avancée | RF-30 à RF-32 | Sprint 2, continu |
 | E10 — Multi-tenant SaaS | - | Sprint 1, 11 |
 | E11 — Tests, CI/CD, Documentation finale | RNF-14, RNF-15 | Continu + Sprint 12 |
+
+**E8 détail** : Prévision demande (Prophet), scoring crédit (RF+SHAP), anomalies enrichies, segmentation RFM+churn, Market Basket (Apriori), élasticité prix (régression log-log), indicateurs contexte africain BF, K-optimal auto-sélectionné, `data_confidence`, /health, Sentry, ABC/XYZ (BI), 155 tests pytest (127 unitaires ML + 17 intégration API + 15 sécurité RBAC + 12 RBAC rôles), pipeline CI/CD GitHub Actions.
 
 ## 23.3 Planning des sprints (12 sprints = 24 semaines ≈ 6 mois)
 
@@ -41,11 +45,11 @@ gantt
     Sprint 5 - Ventes (coeur, remises)        : s5, after s4, 2w
     Sprint 6 - Inventaires                    : s6, after s5, 2w
     Sprint 7 - PWA offline (sync ventes)      : s7, after s6, 2w
-    Sprint 8 - ETL + Prophet/XGBoost           : s8, after s7, 2w
-    Sprint 9 - Scoring crédit + anomalies      : s9, after s8, 2w
-    Sprint 10 - Dashboard BI + ABC/XYZ         : s10, after s9, 2w
-    Sprint 11 - Multi-tenant avancé + sécurité : s11, after s10, 2w
-    Sprint 12 - Tests, CI/CD, doc finale       : s12, after s11, 2w
+    Sprint 8 - ETL + Prophet + scoring crédit   : s8, after s7, 2w
+    Sprint 9 - Anomalies + RFM + K-Means        : s9, after s8, 2w
+    Sprint 10 - Dashboard BI + ABC/XYZ + churn  : s10, after s9, 2w
+    Sprint 11 - Market Basket + élasticité + contexte BF : s11, after s10, 2w
+    Sprint 12 - Tests pytest + CI/CD + doc finale : s12, after s11, 2w
 ```
 
 ## 23.4 Détail des sprints — livrables
@@ -60,11 +64,11 @@ gantt
 | 5 | Ventes | Saisie vente, remises encadrées, crédit | RG-22/RG-23/RG-25 testées |
 | 6 | Inventaires | Comptage, écarts, ajustements | RG-33 testée |
 | 7 | PWA offline | Service Worker, IndexedDB, sync | Scénario coupure réseau démontré |
-| 8 | ETL + prévisions | Pipeline ETL, Prophet/XGBoost | Métriques RMSE/MAE documentées (cf. `20-MACHINE-LEARNING.md`) |
-| 9 | Scoring & anomalies | Random Forest scoring, Isolation Forest | Métriques précision/rappel documentées |
-| 10 | Dashboard BI | Tableau de bord temps réel, export PDF | WebSocket fonctionnel, export PDF généré |
-| 11 | Multi-tenant avancé & sécurité | Migrations multi-schéma, durcissement sécurité | Audit sécurité (cf. `18-SECURITE.md`) réalisé |
-| 12 | Tests & documentation | Couverture ≥ 80 %, documentation soutenance | CI verte, documentation `docs/` complète |
+| 8 | ETL + prévisions + scoring | Pipeline ETL, Prophet (jours fériés BF), Random Forest + SHAP | Métriques RMSE/MAE documentées, SHAP fonctionnel |
+| 9 | Anomalies + RFM + K-Means | Isolation Forest (raisons enrichies), K-Means auto-k, Silhouette/Elbow | 4 segments stables, raisons lisibles |
+| 10 | Dashboard BI + ABC/XYZ + churn | Tableau de bord temps réel, ABC/XYZ BI, churn heuristique, /health | Dashboards fonctionnels |
+| 11 | Market Basket + élasticité + contexte BF | Apriori, régression log-log, indicateurs africains, K-optimal, `data_confidence`, Sentry, Flask-Limiter | Tous les endpoints analytics opérationnels | ✅
+| 12 | Tests + CI/CD + doc soutenance | 155 tests pytest passants (127 unitaires ML + 17 intégration API + 15 sécurité RBAC + 12 RBAC rôles), pipeline CI bloque sur échec, docs actualisées | CI verte, 155/155 tests, documentation `docs/` complète | ✅
 
 ## 23.5 Suivi d'avancement (exemple de tableau de burndown)
 
@@ -90,7 +94,4 @@ gantt
 
 | Risque | Probabilité | Impact | Mitigation |
 |---|---|---|---|
-| Absence de données réelles pour entraîner les modèles IA | Élevée | Moyen | Jeu de données synthétique documenté (`20-MACHINE-LEARNING.md` §20.6) |
-| Complexité du mode offline sous-estimée | Moyenne | Élevé | Sprint dédié (7), prototype précoce |
-| Dérive de planning sur le module IA | Moyenne | Moyen | Sprints 8-10 dédiés, backlog IA priorisé MoSCoW |
-| Multi-tenant ajoutant de la complexité transverse | Moyenne | Moyen | Architecture schema-per-tenant posée dès Sprint 0-1 |
+| Absence de données réelles pour entraîner les modèles IA | Élevée | Moyen | Jeu de donn

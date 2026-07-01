@@ -1,6 +1,6 @@
 # 22. Dashboard BI — Tableaux de bord décisionnels
 
-> **Dernière mise à jour :** 19 juin 2026 — reflète le code réel implémenté.
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
 
 ## 22.1 Vue d'ensemble
 
@@ -95,19 +95,22 @@ let isActive = true;   // propre à chaque invocation de useEffect
 
 ## 22.5 Dashboard analytique étendu (`/analytique`)
 
-Page `AnalyticsPage.tsx` (1371 lignes) avec **9 onglets** :
+Page `AnalyticsPage.tsx` avec **12 onglets** :
 
 | Onglet | Endpoint | Visualisation |
 |---|---|---|
 | Vue d'ensemble | `/analytics/dashboard` + `/sales-trend` | AreaChart tendance CA, BarChart top produits |
-| Prévisions demande | `/analytics/forecast` | Tableau alertes rupture + quantité recommandée |
-| Scoring crédit | `/analytics/credit-scores` | Tableau score coloré + BarChart distribution |
-| Anomalies | `/analytics/anomalies` | Tableau ventes signalées + raisons lisibles |
-| ABC/XYZ | `/analytics/abc-xyz` | Tableau + BarChart CA par classe |
-| Segmentation RFM | `/analytics/rfm-segments` | Tableau + BarChart par segment |
+| Prévisions demande | `/analytics/forecast` | Tableau alertes rupture + quantité recommandée + `data_confidence` |
+| Scoring crédit | `/analytics/credit-scores` + `/analytics/credit-scores/<id>/explain` | Tableau score coloré + BarChart distribution + SHAP explicabilité (détail par client) |
+| Anomalies | `/analytics/anomalies` | Tableau ventes signalées + raisons enrichies (10+ règles) |
+| ABC/XYZ | `/analytics/abc-xyz` | Tableau + BarChart CA par classe *(analytique BI)* |
+| Segmentation RFM | `/analytics/rfm-segments` + `/analytics/rfm-segments/evaluate-k` | Tableau + BarChart — 4 segments toujours affichés (actif/inactif) ; `evaluate-k` retourne scores Silhouette/Elbow pour choix K optimal |
+| Churn Risk | `/analytics/churn-risk` | Tableau probabilité de churn + niveau de risque + action recommandée |
+| Market Basket | `/analytics/basket` | Tableau règles d'association (support/confiance/lift) |
+| Élasticité prix | `/analytics/price-elasticity` | Tableau élasticité + recommandation tarifaire |
+| Contexte africain BF | `/analytics/african-context` | KPIs : saison pluies, weekend boost, stress trésorerie, crédit informel |
 | Modèles ML | `/analytics/ml/models` | Registre avec métriques et algorithmes |
-| Cohortes clients | `/analytics/cohorts` | Heatmap rétention M+0..M+12 + BarChart M+1/M+3 |
-| Valeur vie client | `/analytics/clv` | 4 KPIs + BarChart top 10 + tableau complet |
+| Cohortes + CLV | `/analytics/cohorts` + `/analytics/clv` | Heatmap rétention + top 10 CLV |
 
 ## 22.6 Comparatif inter-succursales (`/comparatif`)
 

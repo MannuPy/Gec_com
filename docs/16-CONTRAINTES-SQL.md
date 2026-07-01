@@ -1,5 +1,7 @@
 # 16. Contraintes SQL, Triggers et Index
 
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 ## 16.1 Récapitulatif des contraintes CHECK
 
 | Table | Contrainte | Règle de gestion |
@@ -16,6 +18,7 @@
 | `sales` | `total_amount >= 0` | RG-25 |
 | `sales` | `status IN (...)` | Diagramme d'état 7.7 |
 | `sales` | `offline_uuid` UNIQUE | RG-28 (idempotence) |
+| `sales` | `approved_by_id` obligatoire si `discount_rate > 0` (**validé côté serveur**) | RF-16/RG-23 : si `discount_rate > 0` et `approved_by_id` absent, l'API retourne `422 VALIDATION_ERROR`. Champ `approved_by_id VARCHAR(36)` (FK → `users.id`, nullable en base — la contrainte est applicative). |
 | `sale_lines` | `quantity > 0`, `unit_price_applied > 0` | RG-25 |
 | `discounts` | `rate IN (5,10,15,20)` | RG-22 |
 | `discounts` | `sale_id` UNIQUE | 1 remise par vente |

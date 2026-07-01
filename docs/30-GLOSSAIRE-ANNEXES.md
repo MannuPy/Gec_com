@@ -33,19 +33,30 @@
 | **IndexedDB** | Base de données clé-valeur intégrée au navigateur, utilisée pour le stockage offline (Dexie.js) |
 | **Service Worker** | Script exécuté en arrière-plan par le navigateur, permettant le cache et la synchronisation différée |
 | **Schema-per-tenant** | Stratégie d'isolation multi-tenant où chaque client dispose de son propre schéma PostgreSQL (`27-MODELE-SAAS-MULTITENANT.md`) |
-| **Celery / Celery Beat** | Système de tâches asynchrones et planifiées en Python, basé sur Redis comme broker |
-| **Prophet** | Bibliothèque de prévision de séries temporelles développée par Meta |
-| **XGBoost** | Algorithme de boosting de gradient pour la régression/classification |
-| **Random Forest** | Algorithme d'apprentissage ensembliste à base d'arbres de décision |
+| **Prophet** | Bibliothèque de prévision de séries temporelles développée par Meta — utilisée pour la prévision de demande avec jours fériés Burkina Faso |
+| **Random Forest** | Algorithme d'apprentissage ensembliste à base d'arbres de décision — utilisé pour le scoring crédit |
+| **SHAP (SHapley Additive exPlanations)** | Méthode d'explicabilité ML permettant de quantifier la contribution de chaque feature à une prédiction |
 | **Isolation Forest** | Algorithme de détection d'anomalies non supervisé |
 | **RFM (Récence, Fréquence, Montant)** | Méthode de segmentation client basée sur le comportement d'achat |
-| **K-Means** | Algorithme de clustering non supervisé |
-| **ABC/XYZ** | Méthode de classification des produits combinant valeur (ABC) et variabilité de la demande (XYZ) |
+| **K-Means** | Algorithme de clustering non supervisé — utilisé pour la segmentation RFM avec k optimal auto-sélectionné (Silhouette/Elbow) |
+| **Apriori** | Algorithme de Market Basket Analysis — identifie les associations de produits fréquemment achetés ensemble (support/confiance/lift) |
+| **ABC/XYZ** | Méthode de classification analytique BI des produits — règles déterministes (pas de ML) : ABC = contribution CA, XYZ = régularité demande |
+| **Élasticité-prix** | Mesure de la sensibilité de la demande au prix — calculée par régression log-log (analytique statistique, pas de ML) |
+| **Churn heuristique** | Modèle de probabilité de désengagement client basé sur la décroissance exponentielle P=1-exp(-λ×R) — pas de ML, pas de données labellisées nécessaires |
+| **Flask-Limiter** | Extension Flask de rate limiting — protection brute-force, stockage `memory://` sur PythonAnywhere (compteurs remis à zéro au redémarrage) |
+| **Sentry** | Plateforme de monitoring d'erreurs applicatives — capture les exceptions non gérées côté backend Flask et frontend React |
 | **MLflow** | Plateforme de gestion du cycle de vie des modèles ML (suivi des expériences, registre de modèles) |
 | **Great Expectations** | Bibliothèque Python de validation de la qualité des données |
 | **Data lineage** | Traçabilité de bout en bout entre les données sources, le modèle entraîné et les prédictions produites |
 | **RMSE / MAE / MAPE** | Métriques d'erreur pour les modèles de régression (Root Mean Squared Error, Mean Absolute Error, Mean Absolute Percentage Error) |
 | **ROC-AUC** | Aire sous la courbe ROC, métrique d'évaluation pour les modèles de classification |
+| **must_change_password** | Champ booléen dans le JWT indiquant que l'utilisateur doit changer son mot de passe avant toute action ; le backend retourne 403 `PASSWORD_CHANGE_REQUIRED` si `True` (RF-05 validé côté serveur) |
+| **approved_by_id** | Champ obligatoire sur une vente lorsque `discount_rate > 0` — référence l'identifiant de l'administrateur ayant approuvé la remise (RF-16/RG-23 validé côté serveur) |
+| **token_blocklist** | Table SQL persistant les tokens JWT révoqués (logout, changement de mot de passe) — remplace un éventuel stockage Redis non disponible sur PythonAnywhere |
+| **DISABLE_SSE** | Variable d'environnement (`true`/`false`) désactivant les Server-Sent Events — à positionner à `true` sur PythonAnywhere qui ne supporte pas les connexions longue durée |
+| **PA_SSH_PASSWORD** | Secret GitHub Actions contenant le mot de passe SSH PythonAnywhere, utilisé par `sshpass` pour automatiser le déploiement CI/CD |
+| **cron_train_all.py** | Script Python à la racine du dépôt (`scripts/cron_train_all.py`) — déclenché par la tâche planifiée PythonAnywhere pour entraîner tous les modèles ML la nuit ; remplace Celery/Redis |
+| **data_confidence** | Indicateur (HIGH/MEDIUM/LOW) reflétant la fiabilité d'une prévision de demande selon la taille de la série historique et l'algorithme utilisé |
 | **RTO / RPO** | Recovery Time Objective / Recovery Point Objective — indicateurs de plan de reprise d'activité (`25-DEPLOIEMENT-CICD.md`) |
 | **CI/CD** | Intégration Continue / Déploiement Continu |
 | **OWASP Top 10** | Référentiel des 10 risques de sécurité les plus critiques pour les applications web |
@@ -70,30 +81,35 @@
 | RF-20 | Mode offline | `26-GESTION-OFFLINE-PWA.md` |
 | RF-21 à RF-23 | Inventaires | `06-CAS-DUTILISATION.md` (UC-10) |
 | RF-24, RF-29 | Rapports & dashboard | `22-DASHBOARD-BI.md` |
-| RF-25 à RF-28 | Module IA | `19-ANALYSE-DE-DONNEES.md`, `20-MACHINE-LEARNING.md`, `21-PIPELINE-ETL.md` |
+| RF-25 à RF-36 | Module analytique & IA | `19-ANALYSE-DE-DONNEES.md`, `20-MACHINE-LEARNING.md`, `21-PIPELINE-ETL.md`, `ANALYTIQUE-ML-IA-COMPLET.md` |
 | RF-30 à RF-32 | Audit, sécurité, i18n | `18-SECURITE.md`, `10-FRONTEND-REACT.md` |
 
 ## 30.5 Annexe B — Hypothèses et limites assumées du projet
 
 | Hypothèse / Limite | Justification | Document de détail |
 |---|---|---|
-| Jeu de données IA synthétique | Absence de données réelles disponibles au démarrage du projet | `20-MACHINE-LEARNING.md` §20.6 |
-| Calendrier Tabaski approximé par dates fixes | Calendrier lunaire complexe à intégrer en V1 | `20-MACHINE-LEARNING.md` §20.6.2 |
-| Mode offline limité à la vente au comptoir | Compromis de complexité pour la V1 | `26-GESTION-OFFLINE-PWA.md` §26.10 |
-| Stack monitoring complète (Prometheus/Loki/Grafana) non déployée en V1 | Périmètre académique, priorité aux fonctions métier | `28-MONITORING-OBSERVABILITE.md` §28.2 |
-| Tarification SaaS indicative, non validée par étude de marché complète | Hors périmètre technique du projet | `27-MODELE-SAAS-MULTITENANT.md` §27.5 |
+| Jeu de données IA synthétique | Absence de données réelles disponibles au démarrage du projet | `20-MACHINE-LEARNING.md` |
+| Calendrier Tabaski approximé par dates fixes | Calendrier lunaire complexe à intégrer en V1 | `ANALYTIQUE-ML-IA-COMPLET.md` |
+| Mode offline limité à la vente au comptoir | Compromis de complexité pour la V1 | `26-GESTION-OFFLINE-PWA.md` |
+| Stack monitoring complète (Prometheus/Loki/Grafana) non déployée | Périmètre académique PythonAnywhere, priorité aux fonctions métier | `28-MONITORING-OBSERVABILITE.md` |
+| Tarification SaaS indicative | Hors périmètre technique du projet | `27-MODELE-SAAS-MULTITENANT.md` |
+| Flask-Limiter `memory://` — protection non persistante | PythonAnywhere ne fournit pas Redis ; compteurs remis à zéro au redémarrage | `18-SECURITE.md` |
+| Churn = heuristique (pas de ML) | Absence de données labellisées "churné/fidèle" dans les PME cibles | `20-MACHINE-LEARNING.md` |
+| ABC/XYZ = analytique BI (pas de ML) | Méthode déterministe suffisante et standard en gestion des stocks | `20-MACHINE-LEARNING.md` |
+| Tests E2E et frontend absents | 155 tests couvrent les fonctions ML, l'intégration API et la sécurité RBAC ; les tests frontend (Jest+RTL) et E2E (Playwright) restent des perspectives V2 | `24-PLAN-DE-TESTS.md` |
 
 ## 30.6 Annexe C — Outils et bibliothèques (récapitulatif)
 
 | Catégorie | Outils |
 |---|---|
-| Backend | Python 3.12, Flask, SQLAlchemy, Alembic, Flask-JWT-Extended, Celery, Redis, Gunicorn |
-| Frontend | React 18, TypeScript, Vite, TanStack Query, Zustand, React Hook Form, Zod, Tailwind CSS, Dexie.js, react-i18next, Recharts, D3.js |
-| Base de données | PostgreSQL 16 (extensions : pg_trgm) |
-| Machine Learning | scikit-learn, Prophet, XGBoost, MLflow, Great Expectations |
-| Tests | pytest, pytest-cov, Jest, React Testing Library, Playwright, Locust |
-| Infrastructure | Docker, Docker Compose, Nginx, GitHub Actions |
-| Observabilité | Sentry, Prometheus, Loki, Grafana (cibles recommandées) |
+| Backend | Python 3.11+, Flask 3.0.3, SQLAlchemy, Alembic, Flask-JWT-Extended, Flask-Limiter 3.8.0 |
+| Frontend | React 18, TypeScript, Vite, TanStack Query, Zustand, React Hook Form, Zod, Tailwind CSS, Dexie.js, react-i18next, Recharts |
+| Base de données | MySQL (PythonAnywhere production) / PostgreSQL (cible Docker) |
+| Machine Learning | scikit-learn, Prophet 1.1.5, shap 0.45.1, mlxtend 0.23.1, numpy, pandas |
+| Tests | pytest 9.x — 155 tests (127 unitaires ML + 17 intégration API + 15 sécurité RBAC + 12 RBAC rôles), CI/CD GitHub Actions |
+| Infrastructure | PythonAnywhere (production académique) + Docker Compose (cible V2) + GitHub Actions CI/CD |
+| Observabilité | Sentry (optionnel, via `SENTRY_DSN`), logs Flask structurés, endpoint `/health` |
+| Tâches planifiées | Threads Python (à chaud) + script cron PythonAnywhere `cron_train_all.py` (nuit) |
 | Documents | WeasyPrint (export PDF) |
 
 ## 30.7 Annexe D — Calendrier de référence (jours fériés Burkina Faso, exemples)

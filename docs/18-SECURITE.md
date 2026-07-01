@@ -14,38 +14,108 @@
 
 | Endpoint | ADMIN | MAGASINIER | VENDEUR |
 |---|---|---|---|
-| `POST /products` | ✅ | ✅ | ❌ |
+| `POST /products` | ✅ | ❌ | ❌ |
 | `POST /transfers` | ✅ | ✅ | ❌ |
 | `POST /transfers/{id}/receive` | ✅ | ✅ (dépôt) | ✅ (boutique destinataire uniquement) |
 | `POST /sales` | ✅ | ❌ | ✅ (boutique de rattachement uniquement) |
-| `POST /sales` avec `discount_rate > 0` | ✅ (auto-approuvé) | ❌ | ✅ **mais** `approved_by_user_id` doit référencer un ADMIN |
+| `POST /sales` avec `discount_rate > 0` | ✅ (`approved_by_id` requis) | ❌ | ✅ **mais** `approved_by_id` obligatoire (validé serveur → 422 sinon) |
+| `GET /users` | ✅ | ❌ | ❌ |
 | `GET /audit` | ✅ | ❌ | ❌ |
-| `GET /ai/*` | ✅ | ❌ (lecture restreinte) | ❌ |
+| `GET /analytics/*` | ✅ | ✅ | ✅ |
 | `GET /reports/dashboard` | ✅ (toutes boutiques) | ✅ (dépôt) | ✅ (sa boutique uniquement) |
 
-### 18.1.3 Implémentation (décorateur Flask)
+### 18.1.3 Implémentation (décorateur Flask — `app/utils/decorators.py`)
 
 ```python
-def require_permission(permission_code: str):
+def require_permission(*required_permissions: str):
+    """Exige AU MOINS UNE des permissions listées.
+
+    RF-05 : si le claim `must_change_password` est True, toutes les routes
+    protégées retournent 403 PASSWORD_CHANGE_REQUIRED avant tout contrôle RBAC.
+    """
     def decorator(fn):
         @wraps(fn)
-        @jwt_required()
         def wrapper(*args, **kwargs):
+            verify_jwt_in_request()
             claims = get_jwt()
-            if permission_code not in claims["permissions"]:
-                AuditService.log("ACCESS_DENIED", entity="endpoint",
-                                  user_id=claims["sub"],
-                                  after={"endpoint": request.path, "permission": permission_code})
-                raise ForbiddenError("FORBIDDEN")
+
+            # RF-05 — Forçage du changement de mot de passe côté backend
+            if claims.get("must_change_password"):
+                return jsonify({
+                    "error": "PASSWORD_CHANGE_REQUIRED",
+                    "message": "Changez votre mot de passe avant d'utiliser l'application.",
+                }), 403
+
+            user_permissions = set(claims.get("permissions", []))
+            if "*" in user_permissions:          # ADMIN wildcard
+                return fn(*args, **kwargs)
+            if not user_permissions.intersection(required_permissions):
+                raise forbidden(
+                    "Cette action nécessite l'une des permissions : "
+                    + ", ".join(required_permissions)
+                )
             return fn(*args, **kwargs)
         return wrapper
     return decorator
-
-@bp.route("/products", methods=["POST"])
-@require_permission("products.manage")
-def create_product():
-    ...
 ```
+
+**RF-05 — Changement de mot de passe obligatoire :**
+- À la création d'un compte, `must_change_password=True` est positionné dans la table `users`.
+- Le claim JWT `must_change_password` est inclus dans **chaque token** émis (login + refresh).
+- Tant que `must_change_password=True`, toutes les routes protégées par `@require_permission` retournent `403 PASSWORD_CHANGE_REQUIRED`.
+- Seul `POST /api/v1/auth/change-password` est accessible (il n'utilise pas `@require_permission`).
+- À la réussite du changement, `must_change_password` passe à `False` en base → les tokens suivants auront le claim à `false`.
+
+
+## 18.1bis Flask-Limiter — Protection brute-force
+
+### Configuration
+
+```python
+# app/extensions.py
+from flask_limiter import Limiter
+
+def _get_real_ip():
+    """IP réelle : priorité CF-Connecting-IP (Cloudflare) → X-Forwarded-For → remote_addr."""
+    from flask import request
+    return (
+        request.headers.get("CF-Connecting-IP")
+        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or request.remote_addr
+    )
+
+limiter = Limiter(
+    key_func=_get_real_ip,
+    default_limits=[],       # pas de limite globale
+    storage_uri="memory://", # compatible PythonAnywhere (pas de Redis)
+)
+```
+
+### Limites appliquées
+
+| Route | Limite | Justification |
+|---|---|---|
+| `POST /api/v1/auth/login` | 10 req/min + 50 req/h / IP | Protection brute-force passwords |
+| `POST /api/v1/auth/register` | 3 req/h / IP | Limitation création comptes en masse |
+
+### Comportement
+
+- **Code HTTP 429** (`Too Many Requests`) retourné au dépassement
+- **Réponse JSON** : `{"error": "RATE_LIMIT_EXCEEDED", "message": "..."}`
+- **Stockage mémoire** : les compteurs sont réinitialisés au redémarrage de l'app (acceptable en mono-tenant). Sur VPS avec Redis, remplacer par `storage_uri="redis://localhost:6379"`.
+- **En-tête `Retry-After`** inclus dans la réponse 429
+
+### Note PythonAnywhere — Limitation connue
+
+`storage_uri="memory://"` est **intentionnel** : PythonAnywhere ne fournit pas Redis.
+
+**Limite honnête à connaître** : PythonAnywhere recharge l'application régulièrement (mise à jour code, redémarrage planifié). À chaque rechargement, tous les compteurs de rate limiting sont remis à zéro. Un attaquant persistant qui revient après un rechargement peut contourner la protection.
+
+**Ce que cette protection fait** : bloquer les attaques brute-force simples et automatisées depuis une même IP sans pause.
+
+**Ce qu'elle ne fait pas** : protéger contre un attaquant qui revient après le redémarrage de l'app, ou contre des attaques distribuées multi-IP.
+
+**Amélioration possible en production réelle** : migrer vers un VPS avec Redis (`storage_uri="redis://localhost:6379"`) pour une protection persistante et multi-worker.
 
 ## 18.2 Authentification JWT
 
@@ -53,8 +123,8 @@ def create_product():
 |---|---|
 | Access token | Durée de vie **15 minutes**, contient `sub` (user_id), `tenant_schema`, `role`, `permissions`, `branch_id` |
 | Refresh token | Durée de vie **7 jours**, stocké en **cookie httpOnly, Secure, SameSite=Strict** |
-| Rotation | Chaque refresh génère un nouveau refresh token (rotation) ; l'ancien est révoqué (liste noire Redis) |
-| Révocation | À la déconnexion (`/auth/logout`), le refresh token est ajouté à une liste noire Redis (TTL = durée de vie restante) |
+| Rotation | Chaque refresh génère un nouveau refresh token (rotation) ; l'ancien est révoqué (liste noire DB) |
+| Révocation | À la déconnexion (`/auth/logout`), le JTI du refresh token est ajouté à `token_blocklist` (table SQL — pas de Redis requis) |
 | Stockage côté client | Access token en mémoire (jamais en localStorage) ; refresh en cookie httpOnly (inaccessible en JS, donc protégé contre le XSS) |
 
 ## 18.3 Chiffrement des données
@@ -77,7 +147,7 @@ def create_product():
 | **Broken Access Control** | RBAC systématique (décorateurs), tests d'intégration dédiés (cf. `24-PLAN-DE-TESTS.md`) |
 | **Validation des entrées** | Schémas Marshmallow/Pydantic stricts sur chaque endpoint (types, bornes, enums — ex. `discount_rate IN {0,5,10,15,20}`) |
 | **Exposition de données sensibles** | Sérialiseurs explicites (jamais `model.__dict__`), `password_hash` exclu de toute sérialisation |
-| **Rate limiting** | Flask-Limiter sur `/auth/login` (ex. 5 tentatives / 15 min / IP) pour limiter le brute-force |
+| **Rate limiting** | Flask-Limiter 3.8.0 — `/auth/login` : 10 req/min + 50 req/h ; `/auth/register` : 3 req/h. IP réelle détectée via `CF-Connecting-IP → X-Forwarded-For → remote_addr`. Stockage `memory://` (compatible PythonAnywhere sans Redis). Code HTTP 429 en cas de dépassement. |
 | **Logging & Monitoring** | Tous les échecs d'authentification et accès refusés sont journalisés (RG-34) |
 | **Dépendances vulnérables** | `pip-audit` / `npm audit` intégrés au pipeline CI (cf. `25-DEPLOIEMENT-CICD.md`) |
 | **Sécurité des en-têtes HTTP** | `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` via Nginx |

@@ -38,6 +38,13 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
             details={"discount_rate": discount_rate, "allowed": sorted(_ALLOWED_DISCOUNTS)},
         )
 
+    # RG-16 : toute remise > 0 % doit mentionner l'approbateur (tracabilite).
+    if discount_rate > 0 and not payload.get("approved_by_id"):
+        raise validation_error(
+            "L'identite de l'approbateur est obligatoire pour toute remise (RG-16).",
+            details={"approved_by_id": "requis lorsque discount_rate > 0"},
+        )
+
     branch_id = payload["branch_id"]
     payment_type = payload["payment_type"]
 
@@ -111,6 +118,7 @@ def create_sale(payload: dict, cashier_id: str) -> Sale:
         total=total,
         payment_type=payment_type,
         status=SaleStatus.VALIDEE.value,
+        approved_by_id=payload.get("approved_by_id"),
     )
     sale.lines = sale_lines
     db.session.add(sale)

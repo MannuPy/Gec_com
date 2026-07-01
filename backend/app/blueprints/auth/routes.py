@@ -12,7 +12,7 @@ from flask_jwt_extended import (
 
 from app.blueprints.auth import auth_bp
 from app.blueprints.auth.schemas import ChangePasswordSchema, LoginSchema, RegisterSchema
-from app.extensions import db
+from app.extensions import db, limiter
 from app.models import AuditLog, TokenBlocklist, User
 from app.services.tenant_provisioning import provision_tenant
 from app.utils.errors import ApiError
@@ -43,6 +43,7 @@ def _serialize_user(user: User) -> dict:
 
 
 @auth_bp.post("/login")
+@limiter.limit("10 per minute; 50 per hour")
 def login():
     """Authentifie un utilisateur et renvoie une paire access/refresh token."""
     payload = LoginSchema().load(request.get_json(silent=True) or {})
@@ -86,6 +87,7 @@ def login():
 
 
 @auth_bp.post("/register")
+@limiter.limit("3 per hour")
 def register():
     """Inscription d'une nouvelle entreprise cliente (RF-01).
 

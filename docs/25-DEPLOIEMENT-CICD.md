@@ -363,17 +363,59 @@ relatif, cf. `frontend/src/api/client.ts`).
 
 ### 25.9.7 Tâches planifiées (remplacement de Celery beat)
 
-Onglet **Tasks** de PythonAnywhere — ajouter des tâches planifiées
-équivalentes au `beat_schedule` de `app/celery_app.py` :
+Onglet **Tasks** de PythonAnywhere — deux tâches recommandées :
 
-| Fréquence (UTC) | Commande | Rôle |
+| Heure (UTC+0) | Commande | Rôle |
 |---|---|---|
-| Quotidienne, 02h00 | `cd ~/gescom-bf/backend && venv/bin/flask etl-daily` | Pipeline ETL (extraction → validation → feature store, §21.6) |
-| Quotidienne, 02h30 | `cd ~/gescom-bf/backend && venv/bin/flask ml-train-all` | Réentraînement des modèles (demande, scoring crédit, anomalies, ABC/XYZ, RFM — RF-25 à RF-28) |
-| Horaire (si plan suffisant) | `cd ~/gescom-bf/backend && venv/bin/flask ml-detect-anomalies` | Détection d'anomalies sur les ventes récentes (RF-28), sinon couverte par `ml-train-all` |
+| 02h00 | `cd ~/gescom-bf/backend && venv/bin/flask etl-daily` | Pipeline ETL (extraction → validation → feature store) |
+| 02h30 | `python ~/gescom-bf/backend/scripts/cron_train_all.py` | **Réentraînement ML** — 6 modules (voir ci-dessous) |
 
-> Le nombre de tâches planifiées simultanées dépend du plan PythonAnywhere ;
-> sur un plan limité, regrouper dans `ml-train-all` (déjà le cas par défaut).
+#### Script `scripts/cron_train_all.py` (méthode recommandée)
+
+Le script autonome `cron_train_all.py` remplace la commande Flask CLI `ml-train-all`. Il offre :
+- Initialisation propre de l'app via `create_app()` + `app.app_context()`
+- 6 modules entraînés : `demand_forecast`, `credit_scoring`, `anomaly_detection`, `abc_xyz`, `rfm_segmentation`, `market_basket`
+- Gestion gracieuse de `mlxtend` absent (except ImportError)
+- Logs vers `/tmp/gescom_ml_training.log`
+
+```bash
+# Configuration dans PythonAnywhere Tasks :
+# Heure : 02:00 (Africa/Abidjan = UTC+0)
+# Commande :
+/home/<username>/.virtualenvs/gescom-bf/bin/python \
+    /home/<username>/gescom-bf/scripts/cron_train_all.py
+```
+
+```python
+# scripts/cron_train_all.py (extrait — fichier à la racine du dépôt, pas dans backend/)
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
+
+from app import create_app
+from app.tasks.etl_tasks import etl_build_features, etl_extract_and_clean, etl_validate
+from app.tasks.ml_tasks import (
+    compute_demand_forecast_task, compute_rfm_segmentation_task,
+    compute_anomaly_detection_task, compute_credit_scoring_task,
+    compute_abc_xyz_task, compute_market_basket_task,
+)
+
+flask_app = create_app("production")
+with flask_app.app_context():
+    # ETL d'abord, puis 6 modèles — chaque erreur est attrapée indépendamment
+    for task_fn in [
+        etl_extract_and_clean, etl_validate, etl_build_features,
+        compute_demand_forecast_task, compute_credit_scoring_task,
+        compute_anomaly_detection_task, compute_rfm_segmentation_task,
+        compute_abc_xyz_task, compute_market_basket_task,
+    ]:
+        try:
+            task_fn.run()
+        except Exception as exc:
+            print(f"[ERROR] {task_fn.__name__}: {exc}")
+# Logs vers logs/cron_train_all.log ; exit code 1 si erreur
+```
+
+> **Note** : Les compteurs Flask-Limiter (mémoire) sont réinitialisés à chaque démarrage. Cela n'affecte pas les entraînements ML nocturnes.
 
 ### 25.9.8 Vérification post-déploiement
 

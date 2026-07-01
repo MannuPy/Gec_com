@@ -6,7 +6,7 @@
 |---|---|---|
 | **ENTREPRISE** | id_entreprise | nom, plan_abonnement, date_creation |
 | **SITE** (dépôt ou boutique) | id_site | nom, type_site (DEPOT_CENTRAL / BOUTIQUE), adresse |
-| **UTILISATEUR** | id_utilisateur | nom, email, mot_de_passe_hash, est_actif, derniere_connexion |
+| **UTILISATEUR** | id_utilisateur | nom, email, mot_de_passe_hash, est_actif, must_change_password, derniere_connexion |
 | **ROLE** | id_role | nom_role, description |
 | **PERMISSION** | id_permission | code_permission, description |
 | **CATEGORIE** | id_categorie | nom_categorie |
@@ -18,7 +18,8 @@
 | **RECEPTION** | id_reception | date_reception, reference_bon |
 | **CLIENT** | id_client | nom, telephone, type_client, solde_du, score_credit |
 | **TRANSFERT** | id_transfert | statut, date_creation, date_reception |
-| **VENTE** | id_vente | statut, canal, uuid_offline, montant_total, date_vente |
+| **VENTE** | id_vente | statut, canal, uuid_offline, montant_total, date_vente, approved_by_id |
+| **TOKEN_BLOCKLIST** | id | jti, user_id, created_at, expires_at |
 | **REMISE** | id_remise | taux, note_approbation |
 | **INVENTAIRE** | id_inventaire | statut, date_creation, date_validation |
 | **JOURNAL_AUDIT** | id_log | type_evenement, entite, donnees_avant, donnees_apres, date_evenement |
@@ -60,6 +61,7 @@ erDiagram
     VENTE }o--o{ PRODUIT : "contient (1,n)-(0,n)"
     VENTE |o--o| REMISE : "applique (0,1)-(0,1)"
     UTILISATEUR ||--o{ REMISE : "approuve (1,1)-(0,n)"
+    UTILISATEUR |o--o{ VENTE : "approuve remise (0,1)-(0,n)"
 
     SITE ||--o{ INVENTAIRE : "concerne (1,1)-(0,n)"
     INVENTAIRE }o--o{ PRODUIT : "compte (1,n)-(0,n)"
@@ -90,6 +92,8 @@ erDiagram
 | RG-01 : une entreprise a un seul dépôt central et N boutiques | Association ENTREPRISE-SITE avec attribut discriminant `type_site`, contrainte d'unicité applicative sur `type_site=DEPOT_CENTRAL` |
 | RG-04/RG-05 : un utilisateur est rattaché à 0 ou 1 site | Cardinalité (0,1) côté SITE pour UTILISATEUR |
 | RG-13 : le stock est toujours rattaché à un site | Cardinalité (1,1) entre STOCK et SITE |
+| RF-05 : l'utilisateur doit changer son mot de passe à la première connexion | Attribut `must_change_password` sur UTILISATEUR (BOOLEAN, défaut TRUE) |
+| RF-16/RG-23 : une vente avec remise référence l'administrateur approbateur | Attribut `approved_by_id` sur VENTE (FK vers UTILISATEUR, NULL si pas de remise) |
 | RG-23 : une remise référence l'administrateur approbateur | Association REMISE-UTILISATEUR (1,1) |
 | RG-26 : une vente à crédit référence un client | Cardinalité (0,1) entre VENTE et CLIENT (0 si vente comptant anonyme) |
 | RG-40 : une prédiction référence un modèle versionné | Association PREDICTION-MODELE_IA (1,1) |

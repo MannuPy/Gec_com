@@ -88,24 +88,47 @@ with app.app_context():
         errors.append(msg)
         print(f"{ERR} {msg}")
 
-    # ── 1b. Alembic version ──────────────────────────────────
+    # ── 1b. Colonne cancelled_at ─────────────────────────────
+    try:
+        n = db.session.execute(text(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            "WHERE table_schema = DATABASE() "
+            "  AND table_name   = 'stock_counts' "
+            "  AND column_name  = 'cancelled_at'"
+        )).scalar()
+
+        if n == 0:
+            db.session.execute(text(
+                "ALTER TABLE stock_counts ADD COLUMN cancelled_at DATETIME NULL"
+            ))
+            db.session.commit()
+            print(f"{OK} cancelled_at ajoutée à stock_counts")
+        else:
+            print(f"{OK} cancelled_at déjà présente")
+    except Exception as e:
+        db.session.rollback()
+        msg = f"cancelled_at : {e}"
+        errors.append(msg)
+        print(f"{ERR} {msg}")
+
+    # ── 1c. Alembic version ──────────────────────────────────
     try:
         current = db.session.execute(
             text("SELECT version_num FROM alembic_version")
         ).scalar()
         print(f"{INF} alembic_version actuelle : {current}")
 
-        if current != "f6a7b8c9d0e1":
+        if current != "g7h8i9j0k1l2":
             if current is None:
                 db.session.execute(
-                    text("INSERT INTO alembic_version (version_num) VALUES ('f6a7b8c9d0e1')")
+                    text("INSERT INTO alembic_version (version_num) VALUES ('g7h8i9j0k1l2')")
                 )
             else:
                 db.session.execute(
-                    text("UPDATE alembic_version SET version_num = 'f6a7b8c9d0e1'")
+                    text("UPDATE alembic_version SET version_num = 'g7h8i9j0k1l2'")
                 )
             db.session.commit()
-            print(f"{OK} alembic_version → f6a7b8c9d0e1")
+            print(f"{OK} alembic_version → g7h8i9j0k1l2")
         else:
             print(f"{OK} alembic_version déjà correcte")
     except Exception as e:
@@ -114,7 +137,7 @@ with app.app_context():
         errors.append(msg)
         print(f"{ERR} {msg}")
 
-    # ── 1c. is_depot sur le dépôt central ───────────────────
+    # ── 1d. is_depot sur le dépôt central ───────────────────
     try:
         rows = db.session.execute(
             text("SELECT id, name, is_depot FROM branches ORDER BY created_at")

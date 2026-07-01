@@ -59,6 +59,8 @@ class SaleCreateSchema(Schema):
     customer_id = fields.String(allow_none=True, load_default=None)
     payment_type = fields.String(load_default="CASH", validate=validate.OneOf(["CASH", "CREDIT"]))
     discount_rate = fields.Integer(load_default=0, validate=validate.OneOf([0, 5, 10, 15, 20]))
+    # RG-16 : identité de l'approbateur obligatoire si remise > 0 % (validée dans sale_service).
+    approved_by_id = fields.String(allow_none=True, load_default=None)
     lines = fields.List(
         fields.Nested(SaleLineCreateSchema), required=True, validate=validate.Length(min=1)
     )
@@ -141,6 +143,8 @@ class SaleSchema(Schema):
     channel = fields.String()
     offline_uuid = fields.String(allow_none=True)
     refund_of_sale_id = fields.String(allow_none=True)
+    approved_by_id = fields.String(allow_none=True)
+    approved_by_name = fields.Method("get_approved_by_name")
     created_at = fields.DateTime()
     lines = fields.List(fields.Nested(SaleLineSchema))
 
@@ -152,3 +156,6 @@ class SaleSchema(Schema):
 
     def get_customer_name(self, obj):
         return obj.customer.full_name if obj.customer else None
+
+    def get_approved_by_name(self, obj):
+        return obj.approved_by.full_name if obj.approved_by else None

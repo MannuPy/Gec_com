@@ -3,7 +3,7 @@
 ## 28.1 Objectifs
 
 - Garantir la **disponibilité** annoncée (RNF-02 : 99,5 %) via une détection rapide des incidents.
-- Fournir aux administrateurs technique une **vue d'ensemble de la santé du système** (API, base de données, files Celery, modèles IA).
+- Fournir aux administrateurs technique une **vue d'ensemble de la santé du système** (API, base de données, entraînements ML, modèles IA).
 - Tracer les **événements de sécurité** (cf. `18-SECURITE.md`) et les **anomalies métier** (cf. `20-MACHINE-LEARNING.md` §20.5) dans un même socle d'observabilité.
 
 ## 28.2 Architecture d'observabilité
@@ -12,7 +12,7 @@
 flowchart TB
     subgraph "Applications"
         API[API Flask]
-        WRK[Celery Workers]
+        WRK[Threads ML / Cron PythonAnywhere]
         FE[Frontend React]
     end
 
@@ -41,7 +41,7 @@ flowchart TB
 
 ## 28.3 Logs structurés
 
-Tous les services émettent des logs JSON sur `stdout` (collectés par le driver de logging Docker) :
+Tous les services émettent des logs JSON sur `stdout`. Sur PythonAnywhere, ces logs sont visibles dans l'onglet **Web → Log files** (`server.log`, `error.log`) ; sur un VPS Docker, ils sont collectés par le driver de logging Docker vers Loki.
 
 ```json
 {
@@ -59,7 +59,7 @@ Tous les services émettent des logs JSON sur `stdout` (collectés par le driver
 
 | Champ | Description |
 |---|---|
-| `request_id` | Identifiant unique de requête (propagé via header `X-Request-ID`), permet de corréler logs API ↔ Celery ↔ frontend |
+| `request_id` | Identifiant unique de requête (propagé via header `X-Request-ID`), permet de corréler logs API ↔ threads ↔ frontend |
 | `tenant` | Schéma tenant concerné — essentiel pour le support multi-tenant |
 | `event` | Code d'événement métier (aligné avec les types de `audit_logs`, cf. `16-CONTRAINTES-SQL.md`) |
 
@@ -69,36 +69,28 @@ Tous les services émettent des logs JSON sur `stdout` (collectés par le driver
 |---|---|---|---|
 | `http_request_duration_seconds` | Histogram | Latence des endpoints API par route/méthode | RNF-01 (p95 < 200 ms) |
 | `http_requests_total{status}` | Counter | Nombre de requêtes par code de statut | RNF-02 (taux d'erreur) |
-| `celery_task_duration_seconds` | Histogram | Durée des tâches Celery (ETL, prévisions) | RNF-17 |
-| `celery_queue_length` | Gauge | Nombre de tâches en attente dans Redis | Détection de saturation |
-| `db_connections_active` | Gauge | Connexions PostgreSQL actives | RNF-06 (volumétrie) |
+| `ml_train_duration_seconds` | Histogram | Durée d'entraînement ML par type de modèle (cron + threads) | RNF-17 |
+| `db_connections_active` | Gauge | Connexions MySQL actives (PythonAnywhere) | RNF-06 (volumétrie) |
 | `sync_offline_sales_pending` | Gauge | Nombre de ventes offline en attente de sync, tous tenants | RG-28-30 |
 | `ml_prediction_lag_hours` | Gauge | Âge de la dernière exécution réussie par type de modèle | RNF-17 (fraîcheur des prédictions) |
 
 ## 28.5 Endpoint de santé (`/health`)
 
-```yaml
-/health:
-  get:
-    summary: Vérification de l'état de santé de l'application
-    security: []   # endpoint public, non authentifié
-    responses:
-      '200':
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                status: { type: string, enum: [ok, degraded, down] }
-                checks:
-                  type: object
-                  properties:
-                    database: { type: string, enum: [ok, error] }
-                    redis: { type: string, enum: [ok, error] }
-                    celery_workers: { type: integer, description: "nombre de workers actifs" }
+```json
+// GET /health — réponse réelle (code 200 si ok, 503 si dégradé)
+{
+  "status": "ok",
+  "version": "dev",
+  "uptime_s": 4521.3,
+  "db": "ok",
+  "ml_models_actifs": 5,
+  "timestamp_utc": "2026-06-24T10:15:30Z"
+}
 ```
 
-Utilisé par : l'orchestrateur Docker (`healthcheck`), un service de supervision externe (UptimeRobot ou équivalent), et le tableau de bord administrateur.
+Implémenté dans `app/__init__.py` — effectue un `SELECT 1` sur la DB et compte les modèles ML actifs. Répond en **503** si la base est indisponible.
+
+Utilisé par : UptimeRobot (supervision externe), pipeline CI/CD (smoke test post-déploiement), tableau de bord administrateur.
 
 ## 28.6 Règles d'alerte (Alertmanager — exemples)
 
@@ -106,8 +98,7 @@ Utilisé par : l'orchestrateur Docker (`healthcheck`), un service de supervision
 |---|---|---|---|
 | `APIHighLatency` | p95 latence > 200 ms pendant 5 min | WARNING | Notification admin technique |
 | `APIHighErrorRate` | Taux d'erreurs 5xx > 1 % pendant 5 min | CRITICAL | Notification immédiate (email + webhook) |
-| `CeleryQueueBacklog` | `celery_queue_length` > 100 pendant 10 min | WARNING | Vérifier capacité des workers |
-| `MLPredictionStale` | `ml_prediction_lag_hours` > 36h (modèle hebdo attendu chaque semaine) | WARNING | Vérifier la tâche `recompute_stock_predictions` |
+| `MLPredictionStale` | `ml_prediction_lag_hours` > 36h (modèle hebdo attendu chaque semaine) | WARNING | Vérifier le script cron `cron_train_all.py` sur PythonAnywhere |
 | `OfflineSyncBacklog` | `sync_offline_sales_pending` > 500 sur un tenant pendant 1h | WARNING | Investiguer connectivité boutique |
 | `DatabaseDown` | `/health` → `database: error` | CRITICAL | Déclenchement procédure PRA (`25-DEPLOIEMENT-CICD.md`) |
 
@@ -116,7 +107,7 @@ Utilisé par : l'orchestrateur Docker (`healthcheck`), un service de supervision
 | Dashboard | Contenu |
 |---|---|
 | **Vue Opérations** | Latence API, taux d'erreurs, charge CPU/mémoire conteneurs, connexions DB |
-| **Vue Celery / IA** | Durée des tâches, fraîcheur des prédictions par tenant, taux de succès des entraînements |
+| **Vue IA / Entraînement** | Durée des entraînements ML (cron + threads), fraîcheur des prédictions, taux de succès par type de modèle |
 | **Vue Multi-tenant** | Nombre de tenants actifs, ventes offline en attente par tenant, volumétrie par schéma |
 | **Vue Sécurité** | Tentatives de connexion échouées, accès refusés (403), activité par rôle |
 
@@ -126,17 +117,24 @@ Utilisé par : l'orchestrateur Docker (`healthcheck`), un service de supervision
 - **Backend** : capture des exceptions non gérées par Flask (au-delà des `ApiError` métier déjà gérées), avec `request_id` pour corrélation avec les logs structurés.
 
 ```python
-# app/__init__.py (extrait)
-import sentry_sdk
-from sentry_sdk.integrations.flask import FlaskIntegration
-
-sentry_sdk.init(
-    dsn=app.config["SENTRY_DSN"],
-    integrations=[FlaskIntegration()],
-    traces_sample_rate=0.1,
-    send_default_pii=False,
-)
+# app/__init__.py — initialisation Sentry (optionnel, activé si SENTRY_DSN est défini)
+_sentry_dsn = app.config.get("SENTRY_DSN") or os.environ.get("SENTRY_DSN")
+if _sentry_dsn:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.flask import FlaskIntegration
+        sentry_sdk.init(
+            dsn=_sentry_dsn,
+            integrations=[FlaskIntegration()],
+            traces_sample_rate=0.1,
+            environment=os.environ.get("FLASK_ENV", "production"),
+            release=os.environ.get("APP_VERSION", "dev"),
+        )
+    except ImportError:
+        app.logger.warning("sentry-sdk non installé — monitoring Sentry désactivé")
 ```
+
+> **Note** : si `SENTRY_DSN` n'est pas défini dans les variables d'environnement, Sentry ne s'initialise pas — le backend fonctionne normalement sans monitoring d'erreurs distant.
 
 ## 28.9 Rétention et conformité
 
@@ -144,5 +142,4 @@ sentry_sdk.init(
 |---|---|---|
 | Logs applicatifs (Loki) | 30 jours | Suffisant pour le débogage opérationnel |
 | Journal d'audit (`audit_logs`) | 1 an minimum (table partitionnée par mois, cf. `16-CONTRAINTES-SQL.md`) | RNF-18, traçabilité métier/légale |
-| Métriques Prometheus | 90 jours (résolution native), agrégats au-delà | Analyse de tendances |
-| Erreurs Sentry | 90 jours | Politique par défaut Sentry, ajustable |
+| Métriques Prometheus | 90 jours (résoluti

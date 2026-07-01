@@ -1,0 +1,10 @@
+Database soutenance password : 
+Database Name : gescom_bf
+Password : GesComMySQL2026!
+
+ Exemple concret si votre username est `mannu` :
+> ```
+> Hôte      : Mannudev.mysql.pythonanywhere-services.com
+> Utilisateur: Mannudev
+> Base      : Mannudev$gescom_bf
+> ```

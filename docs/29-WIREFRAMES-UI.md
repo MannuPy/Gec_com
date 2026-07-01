@@ -198,6 +198,21 @@ Voir la maquette détaillée en `22-DASHBOARD-BI.md` §22.4 — reproduite ici p
 | Contraste | Respect WCAG AA pour les libellés de prix et alertes (lisibilité en environnement lumineux de boutique) |
 | Taille de police | Minimum 14px sur écran de caisse pour lisibilité rapide par le vendeur |
 
-## 29.11 Prochaine étape recommandée
+## 29.11 Nouveaux écrans Analytics (modules implémentés en Sprint 11)
+
+Les modules analytiques suivants ont été implémentés et exposent des endpoints backend. Des écrans dédiés sont à prévoir dans la roadmap frontend V2 :
+
+| Module | Endpoint | Données affichées |
+|---|---|---|
+| Market Basket Analysis (Apriori) | `GET /analytics/market-basket` | Règles d'association produits (support, confiance, lift) |
+| Élasticité-prix | `GET /analytics/price-elasticity` | Coefficient d'élasticité par produit, graphique demande/prix |
+| Probabilité de churn | `GET /analytics/churn` | Score churn par client, segment à risque |
+| SHAP Explicabilité | `GET /analytics/credit-score/<id>` | Facteurs SHAP du scoring crédit client |
+| K-optimal clustering | intégré dans `GET /analytics/rfm` | Nombre de segments auto-sélectionné (Silhouette/Elbow) |
+| Contexte africain BF | `GET /analytics/african-context` | Indicateurs saisonnalité Tabaski, saison des pluies, etc. |
+
+> Ces écrans ne sont pas encore maquettés en basse fidélité. Ils seront intégrés au dashboard analytique existant (`22-DASHBOARD-BI.md`) lors d'une prochaine itération.
+
+## 29.12 Prochaine étape recommandée
 
 Convertir ces wireframes en maquettes haute-fidélité (Figma) pour les écrans UC-11 (caisse) et dashboard avant le développement frontend du Sprint 5 (cf. `23-PLAN-DE-DEVELOPPEMENT.md`), afin de valider l'ergonomie auprès d'un utilisateur pilote si disponible.

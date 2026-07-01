@@ -1,5 +1,7 @@
 # 10. Frontend React (PWA)
 
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 ## 10.1 Arborescence du projet
 
 ```text
@@ -122,6 +124,8 @@ flowchart TD
 ```
 
 Détails complets dans `26-GESTION-OFFLINE-PWA.md`.
+
+> **Note SSE / PythonAnywhere :** les Server-Sent Events (SSE) sont **désactivés en production** (`DISABLE_SSE=true` côté serveur PythonAnywhere). Le frontend bascule automatiquement sur un mécanisme de **polling périodique** (React Query `refetchInterval`) pour les mises à jour en quasi-temps réel (stock, alertes). Les SSE restent disponibles en développement local.
 
 ## 10.7 Internationalisation (i18n)
 

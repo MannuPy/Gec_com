@@ -1,5 +1,7 @@
 # 21. Pipeline ETL & Data Lineage
 
+> **Dernière mise à jour :** 24 juin 2026 — orchestration cron PythonAnywhere (threads + cron_train_all.py) remplace Celery.
+
 ## 21.1 Objectif
 
 Documenter le pipeline d'extraction, transformation et chargement (ETL) qui alimente le module IA, ainsi que le mécanisme de **traçabilité de bout en bout (data lineage)** exigé pour expliquer toute prédiction au jury (RNF-17).
@@ -28,11 +30,12 @@ flowchart TB
     end
 
     subgraph Modélisation
-        D1[Prophet]
-        D2[XGBoost]
-        D3[Random Forest - Scoring]
-        D4[Isolation Forest]
-        D5[ABC/XYZ + KMeans]
+        D1[Prophet - Prévision demande]
+        D2[Random Forest + SHAP - Scoring crédit]
+        D3[Isolation Forest - Anomalies]
+        D4[K-Means - Segmentation RFM]
+        D5[Apriori - Market Basket]
+        D6[Règles pandas - ABC/XYZ BI]
     end
 
     subgraph Sortie
@@ -41,23 +44,37 @@ flowchart TB
     end
 
     A1 & A2 & A3 & A4 & A5 --> B1 --> B2 --> B3 --> B4 --> C1
-    C1 --> D1 & D2 & D3 & D4 & D5
-    D1 & D2 & D3 & D4 & D5 --> E1
-    D1 & D2 & D3 & D4 & D5 --> E2
+    C1 --> D1 & D2 & D3 & D4 & D5 & D6
+    D1 & D2 & D3 & D4 & D5 & D6 --> E1
+    D1 & D2 & D3 & D4 & D5 & D6 --> E2
     E2 -.référence.-> E1
 ```
 
 ## 21.3 Orchestration
 
-| Étape | Outil | Fréquence | Tâche Celery |
+> **Note PythonAnywhere** : Celery n'est pas disponible sur PythonAnywhere. L'orchestration est assurée par **threads Python** (entraînement à chaud via endpoint POST) et le script **`scripts/cron_train_all.py`** planifié depuis l'onglet *Tasks* de PythonAnywhere.
+
+| Étape | Outil | Fréquence | Mécanisme réel (PythonAnywhere) |
 |---|---|---|---|
-| Extraction + nettoyage | pandas + SQLAlchemy | Quotidienne (02h00) | `etl_extract_and_clean` |
-| Validation qualité | Great Expectations | Quotidienne (après extraction) | `etl_validate` |
-| Feature engineering | pandas | Quotidienne | `etl_build_features` |
-| Entraînement Prophet/XGBoost | scikit-learn / Prophet | Hebdomadaire (dimanche 03h00) | `recompute_stock_predictions` |
-| Scoring crédit | scikit-learn | Quotidienne + à chaque vente crédit | `recompute_credit_scores` |
-| Détection d'anomalies | scikit-learn | Horaire | `run_anomaly_detection` |
-| ABC/XYZ + RFM | pandas + scikit-learn | Hebdomadaire | `compute_abc_xyz`, `compute_rfm_segments` |
+| ETL complet (extract → validate → features) | pandas + SQLAlchemy | Quotidienne (02h00 UTC) | `cron_train_all.py` → CLI `flask etl-daily` |
+| Entraînement Prophet | Prophet + scikit-learn | Quotidienne (02h00, après ETL) | `cron_train_all.py` → `compute_demand_forecast_task.run()` |
+| Scoring crédit + SHAP | scikit-learn + shap | Quotidienne | `cron_train_all.py` → `compute_credit_scoring_task.run()` |
+| Détection d'anomalies | Isolation Forest | Quotidienne | `cron_train_all.py` → `compute_anomaly_detection_task.run()` |
+| RFM + K-optimal | K-Means + Silhouette | Quotidienne | `cron_train_all.py` → `compute_rfm_segmentation_task.run()` |
+| ABC/XYZ | Règles déterministes | Quotidienne | `cron_train_all.py` → `compute_abc_xyz_task.run()` |
+| Market Basket Apriori | mlxtend | Quotidienne (fenêtre 6 mois) | `cron_train_all.py` → `compute_market_basket_task.run()` |
+| Entraînement manuel (endpoint) | Thread Python natif | À la demande | `POST /api/v1/analytics/ml/train/{type}` ou body JSON |
+
+**Script cron (`scripts/cron_train_all.py`) :**
+- Lance ETL puis tous les modèles ML dans l'ordre, dans un contexte Flask propre.
+- En cas d'erreur sur une tâche, les suivantes continuent (pas de blocage en cascade).
+- Log dans `logs/cron_train_all.log` ; exit code 1 si au moins une tâche a échoué (PythonAnywhere notifie l'échec par email).
+
+**Commande PythonAnywhere (onglet Tasks, 02h00 UTC) :**
+```
+/home/<username>/.virtualenvs/gescom-bf/bin/python \
+    /home/<username>/gescom-bf/scripts/cron_train_all.py
+```
 
 ## 21.4 Règles de qualité des données (Great Expectations — extraits)
 
@@ -144,13 +161,15 @@ Pour rejouer une prédiction passée (audit, explication d'une anomalie) :
 2. Récupérer `ml_models.metrics.training_data_range` (période de données d'entraînement),
 3. Charger le modèle depuis MLflow et reproduire la prédiction sur les mêmes données d'entrée — garantissant la **reproductibilité scientifique** attendue par le jury.
 
-## 21.6 Schéma du Feature Store (tables intermédiaires)
+## 21.6 Stratégie de reprise sur erreur
 
-| Table intermédiaire | Contenu | Rafraîchissement |
-|---|---|---|
-| `fs_daily_sales` | Ventes agrégées par jour/produit/boutique + features calendaires | Quotidien |
-| `fs_customer_rfm` | RFM par client | Mensuel |
-| `fs_customer_credit_features` | Features de scoring crédit par client | Quotidien |
-| `fs_transaction_features` | Features de détection d'anomalies (fenêtre glissante 30j) | Horaire |
+En cas d'échec d'une étape du pipeline (validation Great Expectations, erreur d'entraînement, timeout) :
 
-> Ces tables résident dans le schéma tenant et sont purgées/recalculées (pas de conservation longue) — seules les sorties (`predictions`) sont conservées pour analyse historique.
+| Scénario | Comportement |
+|---|---|
+| Échec validation qualité | Pipeline interrompu, données corrompues non propagées, alerte admin |
+| Échec entraînement ML | Ancien modèle conservé en production (`ml_models.status = ACTIVE` inchangé), alerte `MLPredictionStale` après 36h |
+| Timeout entraînement (> 10 min) | Thread abandonné, log d'erreur, `/health` reflète le nb de modèles actifs restants |
+| Erreur DB lors de cron | Exception loguée dans `cron_train_all.py`, tâche suivante tentée au prochain cycle |
+
+> Le système est **fail-safe** : aucune prédiction erronée n'est préférée à l'absence de prédiction. En cas de doute, le dernier modèle valide est maintenu.

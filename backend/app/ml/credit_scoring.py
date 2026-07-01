@@ -4,15 +4,23 @@ Score final 0-100, niveau de risque : 0-40 ELEVE, 41-70 MOYEN, 71-100 FAIBLE.
 """
 from __future__ import annotations
 
-import hashlib
 from datetime import datetime
 
 import numpy as np
 import pandas as pd
 
 from app.extensions import db
-from app.ml.common import register_model, record_predictions, latest_predictions, MLflowRun
-from app.models import Customer, CustomerType, FsCustomerCreditFeatures, PaymentType, Sale, SaleStatus
+from app.ml.common import register_model, record_predictions, latest_predictions, MLflowRun, save_artifact, next_version, get_active_model, load_artifact
+from app.models import (
+    Customer,
+    CustomerPayment,
+    CustomerPaymentStatus,
+    CustomerType,
+    FsCustomerCreditFeatures,
+    PaymentType,
+    Sale,
+    SaleStatus,
+)
 from app.models.feature_store import FeatureDataSource
 
 try:
@@ -23,20 +31,28 @@ try:
 except ImportError:
     HAS_SKLEARN = False
 
+try:
+    import shap
+    HAS_SHAP = True
+except ImportError:
+    HAS_SHAP = False
+
 PREDICTION_TYPE = "CREDIT_SCORE"
 MODEL_TYPE = "CREDIT_SCORING"
 
 MIN_SAMPLES_FOR_ML = 20
 TAUX_RETARD_SEUIL = 0.20
 
-
-def _deterministic_repayment_stats(customer_id: str) -> tuple[float, float]:
-    digest = hashlib.sha256(customer_id.encode("utf-8")).digest()
-    seed = int.from_bytes(digest[:4], "big")
-    rng = np.random.RandomState(seed)
-    taux_retard = float(rng.beta(2, 5))
-    delai = float(np.clip(taux_retard * 90 + rng.normal(0, 5), 0, 120))
-    return round(taux_retard, 4), round(delai, 1)
+FEATURE_LABELS_FR = {
+    "nb_achats_credit_total":           "Nombre total d'achats à crédit",
+    "montant_moyen_achat":              "Montant moyen par achat (FCFA)",
+    "delai_moyen_remboursement_jours":  "Délai moyen de remboursement (jours)",
+    "taux_retard":                      "Taux de retard de paiement",
+    "anciennete_client_mois":           "Ancienneté client (mois)",
+    "frequence_achat_mensuelle":        "Fréquence d'achat mensuelle",
+    "solde_du_actuel":                  "Solde dû actuellement (FCFA)",
+    "is_technicien":                    "Est technicien",
+}
 
 
 def _load_customer_features_from_feature_store() -> pd.DataFrame | None:
@@ -69,6 +85,19 @@ def _load_customer_features_direct() -> pd.DataFrame:
     customers = Customer.query.all()
     now = datetime.utcnow()
 
+    # Calcul de la médiane globale des délais réels (tous CustomerPayment PAID avec paid_date).
+    # Utilisée comme valeur neutre pour les clients sans historique de paiement.
+    # Justification : un client inconnu est traité comme un client "moyen" — ni bon ni mauvais payeur.
+    try:
+        all_paid = CustomerPayment.query.filter(
+            CustomerPayment.status == CustomerPaymentStatus.PAID.value,
+            CustomerPayment.paid_date.isnot(None),
+        ).all()
+        global_delays = [max(0, (p.paid_date - p.due_date).days) for p in all_paid if p.due_date]
+        median_delay_global = round(float(np.median(global_delays)), 1) if global_delays else 30.0
+    except Exception:
+        median_delay_global = 30.0  # valeur neutre par défaut si DB indisponible
+
     rows = []
     for customer in customers:
         credit_sales = (
@@ -86,7 +115,40 @@ def _load_customer_features_direct() -> pd.DataFrame:
         anciennete_mois = max((now - customer.created_at).days / 30.0, 1 / 30.0)
         frequence_mensuelle = nb_achats / anciennete_mois
 
-        taux_retard, delai_moyen = _deterministic_repayment_stats(customer.id)
+        # Calcul reel depuis l historique des echeances CustomerPayment.
+        # Remplace l ancienne simulation deterministe par hash SHA-256 (supprimee).
+        payments = CustomerPayment.query.filter_by(customer_id=customer.id).all()
+        if payments:
+            closed = [
+                p for p in payments
+                if p.status in (CustomerPaymentStatus.PAID.value, CustomerPaymentStatus.LATE.value)
+            ]
+            late = [p for p in payments if p.status == CustomerPaymentStatus.LATE.value]
+            taux_retard = round(len(late) / len(closed), 4) if closed else 0.0
+
+            paid_with_dates = [
+                p for p in payments
+                if p.status == CustomerPaymentStatus.PAID.value and p.paid_date
+            ]
+            if paid_with_dates:
+                delays = [max(0, (p.paid_date - p.due_date).days) for p in paid_with_dates]
+                delai_moyen = round(float(np.mean(delays)), 1)
+            else:
+                # Paiements enregistrés mais sans paid_date → délai inconnu.
+                # On utilise la médiane globale (neutre) plutôt que 0 (meilleur payeur).
+                delai_moyen = median_delay_global
+            data_source_val = FeatureDataSource.REAL.value
+        else:
+            # Aucun historique d echeances CustomerPayment.
+            # Proxy conservateur : part de l encours non rembourse (credit_balance / total achats).
+            total_credit = sum(float(s.total) for s in credit_sales)
+            credit_bal = float(customer.credit_balance)
+            taux_retard = round(min(credit_bal / total_credit, 1.0), 4) if total_credit > 0 else 0.0
+            # Correction bug : delai_moyen = 0.0 donnait la meilleure valeur possible
+            # aux clients sans historique, gonflant artificiellement leur score.
+            # On utilise la médiane globale des délais réels comme valeur neutre.
+            delai_moyen = median_delay_global
+            data_source_val = FeatureDataSource.SIMULATED.value
 
         rows.append(
             {
@@ -101,7 +163,7 @@ def _load_customer_features_direct() -> pd.DataFrame:
                 "solde_du_actuel": float(customer.credit_balance),
                 "is_technicien": 1 if customer.customer_type == CustomerType.TECHNICIEN.value else 0,
                 "bon_payeur": 1 if taux_retard < TAUX_RETARD_SEUIL else 0,
-                "data_source": FeatureDataSource.SIMULATED.value,
+                "data_source": data_source_val,
             }
         )
 
@@ -135,7 +197,7 @@ def _risk_level(score: float) -> str:
     return "FAIBLE"
 
 
-def _score_ml(df: pd.DataFrame) -> tuple[np.ndarray, dict, str]:
+def _score_ml(df: pd.DataFrame) -> tuple[np.ndarray, dict, str, object]:
     X = df[FEATURE_COLUMNS].to_numpy()
     y = df["bon_payeur"].to_numpy()
 
@@ -159,7 +221,7 @@ def _score_ml(df: pd.DataFrame) -> tuple[np.ndarray, dict, str]:
         "logistic_regression_cv_accuracy": round(float(logreg_acc), 4),
         "cv_folds": float(n_splits),
     }
-    return scores, metrics, "RANDOM_FOREST+LOGISTIC_REGRESSION_CV"
+    return scores, metrics, "RANDOM_FOREST+LOGISTIC_REGRESSION_CV", rf
 
 
 def _score_rule_based(df: pd.DataFrame) -> tuple[np.ndarray, dict, str]:
@@ -202,17 +264,24 @@ def train() -> dict:
     )
 
     if use_ml:
-        scores, metrics, algorithm = _score_ml(df)
+        scores, metrics, algorithm, rf_model = _score_ml(df)
+        _artifact_version = next_version(MODEL_TYPE)
+        artifact_path = save_artifact(
+            {"rf_model": rf_model}, MODEL_TYPE, _artifact_version
+        )
     else:
         scores, metrics, algorithm = _score_rule_based(df)
+        artifact_path = None
+        _artifact_version = None
 
     n_real = int((df["data_source"] == FeatureDataSource.REAL.value).sum())
     metrics["n_data_source_real"] = float(n_real)
     metrics["n_data_source_simulated"] = float(len(df) - n_real)
     metrics["note"] = (
         "taux_retard et delai_moyen_remboursement_jours : REAL si historique "
-        "customer_payments suffisant, sinon derives de facon deterministe "
-        "(hash customer.id) - cf. 20-MACHINE-LEARNING.md section 20.6.2"
+        "CustomerPayment disponible (due_date/paid_date/status), sinon SIMULATED "
+        "(proxy = credit_balance / total_achats_credit, delai_moyen = médiane_globale_réelle ou 30j). "
+        "La simulation deterministe par hash SHA-256 a ete supprimee."
     )
 
     with MLflowRun(MODEL_TYPE) as run:
@@ -221,7 +290,9 @@ def train() -> dict:
             model_type=MODEL_TYPE,
             algorithm=algorithm,
             metrics=metrics,
+            artifact_path=artifact_path,
             mlflow_run_id=run.run_id,
+            version=_artifact_version,
         )
 
     entries = []
@@ -255,6 +326,93 @@ def train() -> dict:
         "version": model.version,
         "metrics": metrics,
         "n_customers": len(df),
+    }
+
+
+
+def explain_credit_score(customer_id: str) -> dict:
+    """
+    Explication SHAP du score crédit d'un client.
+
+    Utilise TreeExplainer sur le RandomForestClassifier sauvegardé dans
+    l'artefact du modèle actif. Retourne les contributions SHAP de chaque
+    feature au score final, triées par impact absolu décroissant.
+
+    Disponible uniquement si sklearn et shap sont installés et qu'un modèle
+    ML (non rule-based) a déjà été entraîné.
+    """
+    if not HAS_SKLEARN or not HAS_SHAP:
+        return {"available": False, "reason": "Bibliothèques sklearn/SHAP non disponibles"}
+
+    # Charger les features du client
+    df = _load_customer_features_from_feature_store()
+    if df is None or df.empty:
+        df = _load_customer_features_direct()
+    if df.empty:
+        return {"available": False, "reason": "Aucune donnée client disponible"}
+
+    customer_row = df[df["customer_id"] == customer_id]
+    if customer_row.empty:
+        return {"available": False, "reason": "Client introuvable dans les données"}
+
+    # Charger le modèle actif
+    active_model = get_active_model(MODEL_TYPE)
+    if not active_model or not active_model.artifact_path:
+        return {
+            "available": False,
+            "reason": "Aucun artefact de modèle disponible — lancer un entraînement ML d'abord",
+        }
+
+    model_data = load_artifact(active_model.artifact_path)
+    if model_data is None:
+        return {"available": False, "reason": "Artefact introuvable sur le disque"}
+
+    rf_model = model_data.get("rf_model") if isinstance(model_data, dict) else model_data
+    if rf_model is None:
+        return {"available": False, "reason": "Clé 'rf_model' introuvable dans l'artefact"}
+
+    # Features utilisées à l'entraînement
+    feature_cols = [c for c in FEATURE_COLUMNS if c in customer_row.columns]
+    X = customer_row[feature_cols].fillna(0)
+
+    # Calcul SHAP (TreeExplainer — pas d'appel réseau, 100 % local)
+    explainer = shap.TreeExplainer(rf_model)
+    shap_values = explainer.shap_values(X)
+
+    # RandomForestClassifier retourne une liste [classe_0, classe_1]
+    # On prend classe_1 (bon payeur = score élevé)
+    if isinstance(shap_values, list) and len(shap_values) > 1:
+        shap_vals = shap_values[1][0]
+    else:
+        shap_vals = (shap_values[0] if isinstance(shap_values, list) else shap_values)[0]
+
+    contributions = {
+        FEATURE_LABELS_FR.get(col, col): round(float(val), 4)
+        for col, val in zip(feature_cols, shap_vals)
+    }
+    sorted_contribs = sorted(contributions.items(), key=lambda x: abs(x[1]), reverse=True)
+
+    explanations = []
+    for label, shap_val in sorted_contribs[:5]:
+        if abs(shap_val) < 0.005:
+            continue
+        direction = "réduit le risque" if shap_val > 0 else "augmente le risque"
+        sign = "✓" if shap_val > 0 else "✗"
+        explanations.append(f"{sign} {label} {direction} ({shap_val:+.3f})")
+
+    if isinstance(explainer.expected_value, (list, np.ndarray)):
+        base_val = float(explainer.expected_value[1])
+    else:
+        base_val = float(explainer.expected_value)
+
+    return {
+        "available":      True,
+        "customer_id":    customer_id,
+        "base_value":     round(base_val, 4),
+        "contributions":  dict(sorted_contribs),
+        "top_factors":    explanations,
+        "interpretation": "Valeurs positives = réduisent le risque. Valeurs négatives = augmentent le risque.",
+        "model_version":  active_model.version,
     }
 
 

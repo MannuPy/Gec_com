@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from app.extensions import db
-from app.ml.credit_scoring import TAUX_RETARD_SEUIL, _deterministic_repayment_stats
+from app.ml.credit_scoring import TAUX_RETARD_SEUIL
 from app.models import (
     Customer,
     CustomerPayment,
@@ -396,7 +396,12 @@ def _build_fs_customer_credit_features() -> dict:
             taux_retard, delai_moyen = real_stats
             data_source = FeatureDataSource.REAL.value
         else:
-            taux_retard, delai_moyen = _deterministic_repayment_stats(customer.id)
+            # Historique de paiements insuffisant -- proxy depuis le solde credit.
+            # La simulation deterministe par hash SHA-256 a ete supprimee.
+            total_credit = sum(float(s.total) for s in credit_sales)
+            credit_bal = float(customer.credit_balance)
+            taux_retard = round(min(credit_bal / total_credit, 1.0), 4) if total_credit > 0 else 0.0
+            delai_moyen = 0.0
             data_source = FeatureDataSource.SIMULATED.value
 
         entries.append(

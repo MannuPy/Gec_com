@@ -18,11 +18,13 @@ et app/utils/db_dialect.py) :
   `user_index` sont creees directement dans la base applicative.
 """
 import os
+import time as _time
+from datetime import datetime as _dt
 
 from flask import Flask, jsonify, send_from_directory
 
 from app.config import get_config
-from app.extensions import db, migrate, jwt, cors, ma
+from app.extensions import db, migrate, jwt, cors, ma, limiter
 from app.middleware.tenant import register_tenant_middleware
 from app.utils.errors import register_error_handlers
 
@@ -37,6 +39,25 @@ def create_app(env_name: str | None = None) -> Flask:
     jwt.init_app(app)
     ma.init_app(app)
     cors.init_app(app, resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}})
+    # ── Flask-Limiter (rate limiting) — toujours initialisé ─────────────────
+    limiter.init_app(app)
+
+    # ── Sentry : monitoring erreurs (optionnel) ──────────────────────────────
+    _sentry_dsn = app.config.get("SENTRY_DSN") or os.environ.get("SENTRY_DSN")
+    if _sentry_dsn:
+        try:
+            import sentry_sdk
+            from sentry_sdk.integrations.flask import FlaskIntegration
+            sentry_sdk.init(
+                dsn=_sentry_dsn,
+                integrations=[FlaskIntegration()],
+                traces_sample_rate=0.1,          # 10 % des requêtes tracées
+                environment=os.environ.get("FLASK_ENV", "production"),
+                release=os.environ.get("APP_VERSION", "dev"),
+            )
+            app.logger.info("Sentry initialisé (DSN configuré)")
+        except ImportError:
+            app.logger.warning("sentry-sdk non installé — monitoring Sentry désactivé")
 
     register_error_handlers(app)
     register_jwt_callbacks(app)
@@ -45,10 +66,46 @@ def create_app(env_name: str | None = None) -> Flask:
     register_cli(app)
     register_frontend(app)
 
+    _start_time = _time.monotonic()
+
     @app.get("/health")
     def health():
-        """Endpoint public de supervision (cf. 28-MONITORING-OBSERVABILITE.md)."""
-        return jsonify({"status": "ok"})
+        """Endpoint public de supervision enrichi (cf. 28-MONITORING-OBSERVABILITE.md).
+
+        Retourne :
+          - status        : "ok" ou "degraded"
+          - version       : version de l'app (APP_VERSION dans .env ou "dev")
+          - uptime_s      : secondes depuis le démarrage du processus Flask
+          - db            : "ok" ou message d'erreur (ping SELECT 1)
+          - ml_models     : nombre de modèles actifs dans ml_models
+          - timestamp_utc : horodatage de la réponse
+        """
+        from sqlalchemy import text
+
+        # Ping base de données
+        try:
+            db.session.execute(text("SELECT 1"))
+            db_status = "ok"
+        except Exception as exc:
+            db_status = f"error: {exc}"
+
+        # Nombre de modèles ML actifs
+        try:
+            from app.models.ml import MLModel
+            ml_active = db.session.query(MLModel).filter_by(is_active=True).count()
+        except Exception:
+            ml_active = -1
+
+        overall = "ok" if db_status == "ok" else "degraded"
+
+        return jsonify({
+            "status":        overall,
+            "version":       os.environ.get("APP_VERSION", "dev"),
+            "uptime_s":      round(_time.monotonic() - _start_time, 1),
+            "db":            db_status,
+            "ml_models_actifs": ml_active,
+            "timestamp_utc": _dt.utcnow().isoformat() + "Z",
+        }), 200 if overall == "ok" else 503
 
     return app
 

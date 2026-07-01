@@ -145,7 +145,106 @@ def _assign_segments_quantiles(df: pd.DataFrame) -> tuple[pd.DataFrame, str]:
     return df, "RULE_BASED_QUANTILES"
 
 
-def train(months: int = 12, n_clusters: int = 4) -> dict:
+
+def evaluate_optimal_k(X_scaled: "np.ndarray", k_range: range = range(2, 9)) -> dict:
+    """
+    Évalue le nombre optimal de clusters via :
+    - Score de silhouette (qualité intra-cluster vs inter-cluster, plus haut = mieux)
+    - Index de Davies-Bouldin (compacité des clusters, plus bas = mieux)
+    - Inertie (méthode du coude / Elbow)
+
+    Nécessite scikit-learn (appelée uniquement si HAS_SKLEARN=True).
+    """
+    from sklearn.metrics import silhouette_score, davies_bouldin_score
+
+    evaluation = []
+    for k in k_range:
+        if len(X_scaled) < k * 3:   # au moins 3 points par cluster
+            break
+        km = KMeans(n_clusters=k, random_state=42, n_init=10)
+        labels = km.fit_predict(X_scaled)
+
+        sil  = float(silhouette_score(X_scaled, labels))
+        db   = float(davies_bouldin_score(X_scaled, labels))
+        iner = float(km.inertia_)
+
+        evaluation.append({
+            "k":                    k,
+            "silhouette_score":     round(sil,  4),
+            "davies_bouldin_index": round(db,   4),
+            "inertia":              round(iner, 2),
+        })
+
+    if not evaluation:
+        return {"optimal_k": 4, "evaluation": [], "method": "DEFAULT"}
+
+    best = max(evaluation, key=lambda r: r["silhouette_score"])
+
+    if best["silhouette_score"] >= 0.71:
+        interp = "Excellente séparation"
+    elif best["silhouette_score"] >= 0.51:
+        interp = "Bonne séparation"
+    elif best["silhouette_score"] >= 0.26:
+        interp = "Séparation faible — chevauchement partiel"
+    else:
+        interp = "Aucune structure naturelle détectée"
+
+    return {
+        "optimal_k":               best["k"],
+        "optimal_silhouette":      best["silhouette_score"],
+        "optimal_davies_bouldin":  best["davies_bouldin_index"],
+        "evaluation":              evaluation,
+        "interpretation":          interp,
+        "method":                  "MAX_SILHOUETTE",
+    }
+
+
+
+def compute_churn_probability(df_rfm: pd.DataFrame,
+                               churn_threshold_days: int = 90) -> pd.DataFrame:
+    """
+    Probabilité de churn par décroissance exponentielle calibrée.
+
+    P(churn) = 1 - exp(-λ × recency)
+    λ est calibré sur la médiane de recency (demi-vie = médiane).
+    Ajustement par la fréquence : les acheteurs réguliers churner moins.
+    """
+    if df_rfm.empty:
+        return df_rfm
+
+    median_recency = df_rfm["recency"].median()
+    lambda_param = np.log(2) / max(median_recency, 1)
+
+    df_rfm = df_rfm.copy()
+    df_rfm["churn_probability"] = (
+        1 - np.exp(-lambda_param * df_rfm["recency"])
+    ).clip(0, 1).round(4)
+
+    # Atténuation par la fréquence (acheteur régulier = moins de risque de churn)
+    freq_max = df_rfm["frequency"].max()
+    freq_weight = (df_rfm["frequency"] / max(freq_max, 1)).fillna(0)
+    df_rfm["churn_probability"] = (
+        df_rfm["churn_probability"] * (1 - 0.25 * freq_weight)
+    ).clip(0, 1).round(4)
+
+    df_rfm["churn_risk"] = pd.cut(
+        df_rfm["churn_probability"],
+        bins=[0, 0.30, 0.60, 0.80, 1.0],
+        labels=["FAIBLE", "MODERE", "ELEVE", "CRITIQUE"],
+        include_lowest=True,
+    ).astype(str)
+
+    action_map = {
+        "FAIBLE":   "Maintenir la relation standard",
+        "MODERE":   "Envoyer une offre de fidélité",
+        "ELEVE":    "Relance personnalisée recommandée",
+        "CRITIQUE": "Contact direct urgent — risque de perte définitive",
+    }
+    df_rfm["churn_action"] = df_rfm["churn_risk"].map(action_map)
+    return df_rfm
+
+
+def train(months: int = 12, n_clusters: int = None) -> dict:
     df = _load_rfm_dataframe(months)
 
     if df.empty:
@@ -162,18 +261,39 @@ def train(months: int = 12, n_clusters: int = 4) -> dict:
         db.session.commit()
         return {"model_id": model.id, "version": model.version, "metrics": metrics, "n_customers": 0}
 
-    if HAS_SKLEARN and len(df) >= n_clusters:
-        df, algorithm = _assign_segments_kmeans(df, n_clusters)
+    # Évaluer le k optimal si sklearn disponible et données suffisantes
+    k_eval: dict = {}
+    if HAS_SKLEARN and len(df) >= 6:
+        from sklearn.preprocessing import StandardScaler as _SS
+        X_scaled = _SS().fit_transform(df[["recency", "frequency", "monetary"]])
+        if len(df) >= 20:
+            k_eval = evaluate_optimal_k(X_scaled)
+        effective_k = n_clusters if n_clusters is not None else k_eval.get("optimal_k", 4)
+        df, algorithm = _assign_segments_kmeans(df, effective_k)
     else:
+        effective_k = n_clusters if n_clusters is not None else 4
         df, algorithm = _assign_segments_quantiles(df)
+
+    # Calcul de la probabilité de churn pour chaque client
+    df = compute_churn_probability(df)
 
     customers = {c.id: c for c in Customer.query.all()}
 
     segment_counts = df["segment"].value_counts().to_dict()
-    metrics = {"n_customers": float(len(df)), **{f"n_{k.lower()}": float(v) for k, v in segment_counts.items()}}
+    # Garantir que les 4 segments apparaissent toujours dans les métriques,
+    # même si k_optimal < 4 (ex: k=2 → seulement CHAMPIONS et REGULIERS produits).
+    ALL_SEGMENTS = ["CHAMPIONS", "REGULIERS", "A_RISQUE", "OCCASIONNELS"]
+    full_segment_counts = {seg: int(segment_counts.get(seg, 0)) for seg in ALL_SEGMENTS}
+    metrics = {
+        "n_customers": float(len(df)),
+        "n_clusters_used": float(effective_k),
+        "k_evaluation": k_eval,
+        **{f"n_{k.lower()}": float(v) for k, v in full_segment_counts.items()},
+        "segments_actifs": [s for s in ALL_SEGMENTS if full_segment_counts[s] > 0],
+    }
 
     with MLflowRun(MODEL_TYPE) as run:
-        run.log_params({"months": months, "n_clusters": n_clusters})
+        run.log_params({"months": months, "n_clusters": effective_k})
         run.log_metrics(metrics)
         model = register_model(
             model_type=MODEL_TYPE,
@@ -197,6 +317,9 @@ def train(months: int = 12, n_clusters: int = 4) -> dict:
                     "segment": row["segment"],
                     "segment_label": SEGMENT_LABELS.get(row["segment"], row["segment"]),
                     "recommended_action": SEGMENT_ACTIONS.get(row["segment"], ""),
+                    "churn_probability": float(row.get("churn_probability", 0.0)),
+                    "churn_risk": row.get("churn_risk", "INCONNU"),
+                    "churn_action": row.get("churn_action", ""),
                 },
             }
         )

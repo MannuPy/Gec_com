@@ -53,6 +53,15 @@ def compute_rfm_segments_task(months: int = 12, n_clusters: int = 4) -> dict:
     return result
 
 
+
+
+@celery_app.task(name="app.tasks.ml_tasks.compute_market_basket_task")
+def compute_market_basket_task(months: int = 6) -> dict:
+    from app.ml import market_basket
+    result = market_basket.train(months=months)
+    logger.info("compute_market_basket_task: %s", result)
+    return result
+
 # Registre utilise par POST /analytics/ml/train/<model_type>
 TRAIN_FUNCTIONS = {
     "DEMAND_FORECAST": train_demand_forecast_task,
@@ -60,4 +69,5 @@ TRAIN_FUNCTIONS = {
     "ANOMALY_DETECTION": detect_anomalies_task,
     "ABC_XYZ": compute_abc_xyz_task,
     "RFM_SEGMENTATION": compute_rfm_segments_task,   # <-- etait manquant
+    "MARKET_BASKET":    compute_market_basket_task,
 }

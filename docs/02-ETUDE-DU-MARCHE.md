@@ -1,3 +1,5 @@
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 # 2. Étude du marché & Analyse de l'existant
 
 ## 2.1 Objectif
@@ -35,12 +37,13 @@ Justifier le choix de développer une solution sur-mesure plutôt que d'adopter 
 | Choix | Justification |
 |---|---|
 | **Flask (Python)** | Léger, flexible, écosystème riche pour l'IA (scikit-learn, Prophet, XGBoost) déjà en Python — évite une rupture de stack entre backend et data science |
-| **PostgreSQL** | Open-source, robuste, supporte le **schema-per-tenant** nativement (multi-tenant SaaS), JSONB pour flexibilité, extensions (pg_cron, TimescaleDB possible pour séries temporelles) |
-| **SQLAlchemy + Alembic** | ORM mature, migrations versionnées indispensables pour un schéma évolutif multi-tenant |
+| **MySQL (PythonAnywhere)** | Base de données de production académique — fournie nativement par PythonAnywhere, robuste, compatible SQLAlchemy. PostgreSQL reste la cible recommandée pour un déploiement VPS en production commerciale (supporte le schema-per-tenant, JSONB, pg_cron). |
+| **SQLAlchemy + Alembic** | ORM mature, migrations versionnées indispensables pour un schéma évolutif multi-tenant (10 migrations Alembic dans `backend/migrations/versions/`) |
 | **React + TypeScript + Vite** | Écosystème moderne, typage fort réduisant les bugs, Vite pour un build rapide, compatible PWA |
-| **Redis + Celery** | File de tâches asynchrones pour les calculs ML (entraînement Prophet/XGBoost) et les alertes, sans bloquer l'API |
-| **JWT** | Authentification stateless adaptée à une architecture API séparée frontend/backend, avec refresh tokens pour gestion offline |
-| **Docker / Nginx / Gunicorn** | Déploiement reproductible, isolation, scalabilité horizontale par tenant si nécessaire |
+| **Threads Python natifs + cron PythonAnywhere** | Tâches asynchrones ML (entraînement Prophet/XGBoost) gérées par threads Python natifs et un script cron journalier (`scripts/cron_train_all.py` à la racine du dépôt) — sans dépendance à Celery/Redis, compatible PythonAnywhere. |
+| **JWT + token_blocklist SQL** | Authentification stateless adaptée à une architecture API séparée frontend/backend. Révocation JWT par table SQL (`token_blocklist`) — pas de Redis. Refresh tokens pour gestion offline. |
+| **Flask-Limiter 3.8.0 (`memory://`)** | Rate limiting en mémoire (compatible PythonAnywhere sans Redis) : login 10/min + 50/h, register 3/h. |
+| **Docker / Nginx / Gunicorn** | Déploiement reproductible sur VPS, isolation, scalabilité horizontale par tenant si nécessaire. En production académique : PythonAnywhere (WSGI + MySQL). |
 | **Prophet + XGBoost** | Prophet pour la saisonnalité (fêtes, saison des pluies) avec peu de données ; XGBoost pour affiner avec variables exogènes (promotions, jours fériés) |
 | **Scikit-learn (scoring, clustering, Isolation Forest)** | Bibliothèque standard, modèles interprétables (régression logistique, Random Forest) adaptés à un jury non-spécialiste |
 

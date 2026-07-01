@@ -173,16 +173,50 @@ def train(days: int = 90) -> dict:
     for _, row in anomalies.iterrows():
         cashier = users.get(row["cashier_id"])
         reasons = []
-        if row.get("remise_taux", 0) >= 15:
-            reasons.append("Remise elevee")
-        if row.get("ecart_vs_moyenne_produit", 0) > 1:
-            reasons.append("Montant largement superieur a la moyenne du produit")
-        if row.get("ecart_vs_moyenne_vendeur", 0) > 1:
-            reasons.append("Montant largement superieur a la moyenne du vendeur")
-        if row.get("heure_vente", 12) < 6 or row.get("heure_vente", 12) > 21:
-            reasons.append("Vente hors horaires habituels")
+        remise  = row.get("remise_taux", 0)
+        heure   = row.get("heure_vente", 12)
+        ecart_p = row.get("ecart_vs_moyenne_produit", 0)
+        ecart_v = row.get("ecart_vs_moyenne_vendeur", 0)
+        montant = row.get("montant_total", 0)
+
+        # ── Remises suspectes ──────────────────────────────────────────────
+        if remise >= 20:
+            reasons.append("Remise maximale accordée (20 %) — approbation requise")
+        elif remise >= 15:
+            reasons.append("Remise élevée (≥ 15 %)")
+
+        # Remise accordée tôt le matin, hors supervision managériale
+        if remise > 0 and heure < 8:
+            reasons.append("Remise accordée en dehors des heures de supervision (avant 8h)")
+
+        # ── Écarts de montant ──────────────────────────────────────────────
+        if ecart_p > 3:
+            reasons.append(f"Montant {ecart_p:.1f}x supérieur à la moyenne du produit")
+        elif ecart_p > 1:
+            reasons.append("Montant largement supérieur à la moyenne du produit")
+
+        # Doublon intentionnel : écart vendeur au-dessus de 2x (fraude probable)
+        if ecart_v > 2:
+            reasons.append(f"Volume {ecart_v:.1f}x supérieur à la moyenne du vendeur — risque fraude")
+        elif ecart_v > 1:
+            reasons.append("Montant supérieur à la moyenne du vendeur")
+
+        # ── Horaires atypiques ─────────────────────────────────────────────
+        if heure < 6:
+            reasons.append("Vente très tôt le matin (avant 6h) — horaire inhabituel")
+        elif heure > 21:
+            reasons.append("Vente en soirée tardive (après 21h) — horaire inhabituel")
+
+        # ── Combinaisons à risque élevé ────────────────────────────────────
+        if remise >= 10 and ecart_v > 1:
+            reasons.append("Combinaison remise élevée + volume vendeur anormal")
+
+        if montant > 0 and ecart_p > 2 and remise > 0:
+            reasons.append("Montant suspect avec remise sur produit à écart élevé")
+
+        # ── Fallback ───────────────────────────────────────────────────────
         if not reasons:
-            reasons.append("Profil statistique atypique")
+            reasons.append("Profil statistique atypique (score IsolationForest bas)")
 
         entries.append(
             {

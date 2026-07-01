@@ -4,18 +4,23 @@ import type {
   AbcXyzParams,
   AdvancedDashboard,
   AdvancedDashboardParams,
+  AfricanContextResponse,
   AnalyticsItemsResponse,
   AnomalyItem,
   AnomalyParams,
+  ChurnRiskResponse,
   CreditScoreItem,
   CreditScoreParams,
   DemandForecastItem,
   DemandForecastParams,
+  MarketBasketResponse,
   MlModel,
   MlModelType,
   MlTrainResult,
-  RfmSegmentItem,
+  PriceElasticityResponse,
+  RfmEvaluateKResponse,
   RfmSegmentParams,
+  RfmSegmentsResponse,
   SalesTrendItem,
   CohortAnalysis,
   ClvResponse,
@@ -60,10 +65,46 @@ export const analyticsApi = {
   abcXyz: (params: AbcXyzParams = {}) =>
     apiClient.get<AnalyticsItemsResponse<AbcXyzItem>>("/analytics/abc-xyz", { params }).then((r) => r.data),
 
-  /** RF-26 : segmentation RFM des clients. */
+  /** RF-26 : segmentation RFM des clients (avec résumé par segment et churn). */
   rfmSegments: (params: RfmSegmentParams = {}) =>
     apiClient
-      .get<AnalyticsItemsResponse<RfmSegmentItem>>("/analytics/rfm-segments", { params })
+      .get<RfmSegmentsResponse>("/analytics/rfm-segments", { params })
+      .then((r) => r.data),
+
+  /** Clients à risque de churn (heuristique P=1-exp(-λ×R)). */
+  churnRisk: (params: { min_probability?: number } = {}) =>
+    apiClient
+      .get<ChurnRiskResponse>("/analytics/churn-risk", { params })
+      .then((r) => r.data),
+
+  /** Market Basket Analysis — règles d'association produits (Apriori). */
+  marketBasket: (params: { branch_id?: string; min_lift?: number; product?: string } = {}) =>
+    apiClient
+      .get<MarketBasketResponse>("/analytics/basket", { params })
+      .then((r) => r.data),
+
+  /** Entraîner le modèle Market Basket en arrière-plan. */
+  trainMarketBasket: (months = 6) =>
+    apiClient
+      .post<{ status: string; message: string }>("/analytics/basket/train", { months })
+      .then((r) => r.data),
+
+  /** Élasticité prix par produit (régression log-log). */
+  priceElasticity: (params: { branch_id?: string; months?: number } = {}) =>
+    apiClient
+      .get<PriceElasticityResponse>("/analytics/price-elasticity", { params })
+      .then((r) => r.data),
+
+  /** Contexte africain / BF — événements, weekend boost, stress trésorerie. */
+  africanContext: () =>
+    apiClient
+      .get<AfricanContextResponse>("/analytics/african-context")
+      .then((r) => r.data),
+
+  /** Évaluation K optimal pour K-Means RFM (Silhouette + Davies-Bouldin + Elbow). */
+  rfmEvaluateK: () =>
+    apiClient
+      .get<RfmEvaluateKResponse>("/analytics/rfm-segments/evaluate-k")
       .then((r) => r.data),
 
   /** Registre des modèles ML entraînés (RNF-17, RG-40). */

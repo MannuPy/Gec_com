@@ -211,6 +211,9 @@ CREATE TABLE sales (
     channel         VARCHAR(10) NOT NULL DEFAULT 'ONLINE' CHECK (channel IN ('ONLINE','OFFLINE')),
     offline_uuid    UUID UNIQUE,                 -- idempotence sync (RG-28)
     total_amount    NUMERIC(14,2) NOT NULL CHECK (total_amount >= 0),
+    approved_by_id  VARCHAR(36) REFERENCES users(id) ON DELETE RESTRICT,
+                                                 -- RF-16/RG-23 : obligatoire si discount_rate > 0 ; NULL sinon
+                                                 -- MySQL : VARCHAR(36) | PostgreSQL : UUID
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     client_created_at TIMESTAMPTZ                -- horodatage côté client (offline)
 );
@@ -297,6 +300,21 @@ CREATE TABLE predictions (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_predictions_product_branch ON predictions(product_id, branch_id, created_at);
+
+-- ============================================================
+-- TABLE : token_blocklist (JWT révoqués — RF-05, sécurité)
+-- ============================================================
+CREATE TABLE token_blocklist (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    -- MySQL : VARCHAR(36) NOT NULL UNIQUE
+    jti         VARCHAR(255) NOT NULL UNIQUE,     -- JWT ID unique (claim "jti")
+    user_id     UUID REFERENCES users(id) ON DELETE SET NULL,
+    -- MySQL : VARCHAR(36) REFERENCES users(id)
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at  TIMESTAMPTZ NOT NULL               -- purge automatique après expiration
+);
+CREATE INDEX idx_token_blocklist_jti ON token_blocklist(jti);
+CREATE INDEX idx_token_blocklist_expires ON token_blocklist(expires_at);
 ```
 
 ## 14.2 Table globale `companies` (schéma `public`)
@@ -317,5 +335,5 @@ CREATE TABLE public.companies (
 ## 14.3 Notes d'implémentation
 
 - L'extension `pg_trgm` (utilisée pour `idx_products_name_trgm`) doit être activée : `CREATE EXTENSION IF NOT EXISTS pg_trgm;` — elle permet la recherche tolérante aux fautes (RF-08) via similarité trigramme, en complément de la recherche côté client (Fuse.js, mode offline).
-- Le partitionnement de `audit_logs` (et optionnellement `sales`, `stock_movements` au-delà de 500k lignes) est géré par une tâche Celery mensuelle qui crée la partition du mois suivant.
+- Le partitionnement de `audit_logs` (et optionnellement `sales`, `stock_movements` au-delà de 500k lignes) est géré par un script cron mensuel (`scripts/cron_train_all.py`) qui crée la partition du mois suivant (Celery/Redis supprimés — remplacés par threads Python + cron).
 - Toutes les tables utilisent `UUID` comme clé primaire (génération `uuid_generate_v4()`) pour faciliter la synchronisation offline (les UUID générés côté client ne collisionnent pas avec le serveur).

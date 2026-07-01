@@ -1,3 +1,5 @@
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 # 7. Diagrammes UML
 
 ## 7.1 Diagramme de classes
@@ -28,6 +30,7 @@ classDiagram
         +String password_hash
         +UUID role_id
         +Boolean is_active
+        +Boolean must_change_password
         +DateTime last_login
     }
 
@@ -190,6 +193,7 @@ classDiagram
         +String model_type
         +String model_version
         +JSON payload
+        +Float data_confidence
         +DateTime created_at
     }
 
@@ -233,7 +237,7 @@ sequenceDiagram
     actor U as Utilisateur
     participant FE as Frontend React
     participant API as API Flask (/auth/login)
-    participant DB as PostgreSQL
+    participant DB as MySQL/PostgreSQL
     participant AUD as Audit Service
 
     U->>FE: Saisie email + mot de passe
@@ -241,11 +245,11 @@ sequenceDiagram
     API->>DB: SELECT user WHERE email AND company schema
     DB-->>API: Utilisateur + hash mot de passe
     alt identifiants valides et compte actif
-        API->>API: Vérification bcrypt + génération JWT (access 15min, refresh 7j)
+        API->>API: Vérification bcrypt + génération JWT (access 15min, refresh 7j) avec must_change_password
         API->>AUD: log(LOGIN_SUCCESS, user_id)
         API-->>FE: 200 {access_token, refresh_token, user, role, permissions}
         FE->>FE: Stockage access_token (mémoire) + refresh_token (cookie httpOnly)
-        FE-->>U: Redirection vers Dashboard
+        FE-->>U: Redirection vers Dashboard (ou écran changement MDP si must_change_password=True)
     else identifiants invalides
         API->>AUD: log(LOGIN_FAILED, email)
         API-->>FE: 401 {error: "INVALID_CREDENTIALS"}
@@ -264,7 +268,7 @@ sequenceDiagram
     participant FE as Frontend React (PWA)
     participant IDB as IndexedDB (local)
     participant API as API Flask (/sales)
-    participant DB as PostgreSQL
+    participant DB as MySQL/PostgreSQL
     participant AUD as Audit Service
 
     V->>FE: Recherche produit + ajout lignes
@@ -298,7 +302,7 @@ sequenceDiagram
     participant SW as Service Worker
     participant IDB as IndexedDB (local)
     participant API as API Flask (/sync/sales)
-    participant DB as PostgreSQL
+    participant DB as MySQL/PostgreSQL
     participant AUD as Audit Service
 
     Note over SW: Détection retour de connexion
@@ -402,13 +406,14 @@ flowchart TB
         NGINX[Nginx Reverse Proxy / TLS]
     end
     subgraph Backend
-        API[Flask API - Gunicorn]
-        WORKER[Celery Workers]
-        SCHED[Celery Beat - tâches planifiées]
+        API[Flask API - Gunicorn / WSGI PythonAnywhere]
+        THREADS[Threads Python natifs - tâches ML async]
+        CRON[Cron PythonAnywhere - scripts/cron_train_all.py]
+        LIMITER[Flask-Limiter 3.8.0 - memory://]
     end
     subgraph Data
-        PG[(PostgreSQL multi-schéma)]
-        REDIS[(Redis - cache, queue, pub/sub)]
+        DB[(MySQL - PythonAnywhere prod)]
+        BLOCKLIST[(token_blocklist - table SQL)]
     end
     subgraph IA
         ML[Modèles Prophet / XGBoost / sklearn]
@@ -417,13 +422,14 @@ flowchart TB
 
     PWA <--> NGINX
     NGINX <--> API
-    API <--> PG
-    API <--> REDIS
-    API --> WORKER
-    SCHED --> WORKER
-    WORKER <--> PG
-    WORKER <--> REDIS
-    WORKER <--> ML
+    API <--> DB
+    API <--> BLOCKLIST
+    API --> THREADS
+    CRON --> ML
+    THREADS <--> DB
+    THREADS <--> ML
     ML <--> MLFLOW
-    API -.WebSocket alertes.-> PWA
+    API -.polling alertes DISABLE_SSE=true.-> PWA
 ```
+
+> **Note technique v2 :** L'endpoint `GET /health` retourne `{"status":"ok","db":"ok","ml_models_actifs":N,...}` pour le monitoring. Le CI/CD utilise GitHub Actions avec `sshpass` (secret `PA_SSH_PASSWORD`) — pas de clés SSH. Les 10 migrations Alembic se trouvent dans `backend/migrations/versions/`. Sentry SDK s'active si `SENTRY_DSN` est défini dans l'environnement.

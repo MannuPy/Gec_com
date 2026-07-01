@@ -158,6 +158,7 @@ Contrainte additionnelle : un seul enregistrement `type='DEPOT_CENTRAL'` par ten
 | sales | total_amount | NUMERIC(14,2) | NN, CHECK >= 0 | Montant total (RG-25) |
 | sales | created_at | TIMESTAMPTZ | NN | Date d'enregistrement serveur |
 | sales | client_created_at | TIMESTAMPTZ | nullable | Horodatage de saisie côté client (offline) |
+| sales | approved_by_id | VARCHAR(36) / UUID | FK→users, nullable | Administrateur ayant approuvé la remise (RF-16/RG-23) — obligatoire si `discount_rate > 0`, NULL sinon |
 | sale_lines | id | UUID | PK | Identifiant ligne |
 | sale_lines | sale_id | UUID | NN, FK→sales | Vente parente |
 | sale_lines | product_id | UUID | NN, FK→products | Produit vendu |
@@ -220,3 +221,17 @@ Table partitionnée par mois (`created_at`), rétention 1 an (RNF-18, RG-35).
 | predictions | type | VARCHAR(50) | NN | RUPTURE_STOCK / CREDIT_SCORE / ANOMALIE / ABC_XYZ |
 | predictions | payload | JSONB | NN | Contenu de la prédiction (valeurs, intervalles de confiance, recommandations) |
 | predictions | created_at | TIMESTAMPTZ | NN | Date de génération |
+
+## 15.15 `token_blocklist`
+
+Table de révocation des JWT (logout, changement de mot de passe, invalidation de session).
+
+| Champ | Type | Contraintes | Description |
+|---|---|---|---|
+| id | UUID / VARCHAR(36) | PK | Identifiant interne (UUID PostgreSQL, VARCHAR(36) MySQL) |
+| jti | VARCHAR(255) | NN, U | JWT ID unique extrait du claim `"jti"` du token révoqué |
+| user_id | UUID / VARCHAR(36) | FK→users, nullable | Utilisateur propriétaire du token (NULL si utilisateur supprimé) |
+| created_at | TIMESTAMP | NN | Date d'ajout à la liste noire |
+| expires_at | TIMESTAMP | NN | Date d'expiration du token — permet la purge automatique des entrées obsolètes |
+
+Remarque : la table est purgée périodiquement des entrées dont `expires_at < NOW()` par le script cron `scripts/cron_train_all.py`.

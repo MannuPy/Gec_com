@@ -13,6 +13,7 @@ Routes du blueprint `analytics` : tableau de bord avance et endpoints IA/ML
 """
 from __future__ import annotations
 
+import threading
 from datetime import datetime, date, time, timedelta
 from collections import defaultdict
 
@@ -23,6 +24,21 @@ from app.extensions import db
 from app.models import MLModel, Sale, SaleStatus, SaleLine, Customer
 from app.services.analytics_service import compute_dashboard, compute_sales_trend
 from app.utils.decorators import require_permission
+
+
+def _run_ml_task_async(task, model_type: str, app) -> None:
+    """Lance task.run() dans un thread dédié avec un contexte Flask propre.
+
+    Nécessaire car un thread Python n'hérite pas du contexte Flask du thread
+    parent — sans app.app_context(), SQLAlchemy lèverait RuntimeError.
+    """
+    with app.app_context():
+        try:
+            task.run()
+        except Exception as exc:
+            app.logger.error(
+                "Entraînement %s échoué (thread) : %s", model_type, exc, exc_info=True
+            )
 
 
 @analytics_bp.get("/sales-trend")
@@ -138,8 +154,13 @@ def abc_xyz_view():
 @analytics_bp.get("/rfm-segments")
 @require_permission("analytics:read")
 def rfm_segments_view():
-    """Segmentation RFM des clients (RF-26)."""
+    """Segmentation RFM des clients (RF-26).
+
+    Retourne toujours les 4 segments dans segment_summary (count=0 si absent),
+    même si k_optimal < 4 — évite les cartes vides côté frontend.
+    """
     from app.ml import rfm_segmentation
+    from app.ml.rfm_segmentation import SEGMENT_LABELS, SEGMENT_ACTIONS
 
     segment = request.args.get("segment")
 
@@ -147,7 +168,30 @@ def rfm_segments_view():
     if segment:
         results = [r for r in results if r.get("segment") == segment.upper()]
 
-    return jsonify({"items": results, "count": len(results)})
+    # Résumé par segment — toujours les 4, même avec count=0
+    ALL_SEGMENTS = ["CHAMPIONS", "REGULIERS", "A_RISQUE", "OCCASIONNELS"]
+    counts_by_seg = {}
+    for r in results:
+        s = r.get("segment", "INCONNU")
+        counts_by_seg[s] = counts_by_seg.get(s, 0) + 1
+
+    segment_summary = [
+        {
+            "segment":            seg,
+            "label":              SEGMENT_LABELS.get(seg, seg),
+            "recommended_action": SEGMENT_ACTIONS.get(seg, ""),
+            "count":              counts_by_seg.get(seg, 0),
+            "active":             counts_by_seg.get(seg, 0) > 0,
+        }
+        for seg in ALL_SEGMENTS
+    ]
+
+    return jsonify({
+        "items":           results,
+        "count":           len(results),
+        "segment_summary": segment_summary,
+        "segments_actifs": [s for s in ALL_SEGMENTS if counts_by_seg.get(s, 0) > 0],
+    })
 
 
 @analytics_bp.get("/ml/models")
@@ -219,8 +263,19 @@ def trigger_training(model_type: str):
             result = task.run()
             return jsonify({"status": "ok", "model_type": model_type_normalized, "result": result})
 
-    result = task.run()
-    return jsonify({"status": "completed", "model_type": model_type_normalized, "result": result})
+    app_obj = current_app._get_current_object()
+    thread = threading.Thread(
+        target=_run_ml_task_async,
+        args=(task, model_type_normalized, app_obj),
+        daemon=True,
+        name=f"ml_{model_type_normalized}",
+    )
+    thread.start()
+    return jsonify({
+        "status": "started",
+        "model_type": model_type_normalized,
+        "message": "Entraînement lancé en arrière-plan. Résultats disponibles dans /ml/models.",
+    }), 202
 
 
 @analytics_bp.post('/ml/train')
@@ -268,9 +323,356 @@ def trigger_training_body():
             result = task.run()
             return jsonify({'status': 'ok', 'model_type': model_type_normalized, 'result': result})
 
-    result = task.run()
-    return jsonify({'status': 'completed', 'model_type': model_type_normalized, 'result': result})
+    app_obj = current_app._get_current_object()
+    thread = threading.Thread(
+        target=_run_ml_task_async,
+        args=(task, model_type_normalized, app_obj),
+        daemon=True,
+        name=f"ml_{model_type_normalized}",
+    )
+    thread.start()
+    return jsonify({
+        'status': 'started',
+        'model_type': model_type_normalized,
+        'message': 'Entraînement lancé en arrière-plan. Résultats disponibles dans /ml/models.',
+    }), 202
 
+
+
+
+
+
+@analytics_bp.get("/credit-scores/<customer_id>/explain")
+@require_permission("analytics:read")
+def explain_credit_score_view(customer_id: str):
+    """Explication SHAP des facteurs influençant le score crédit d'un client (RF-27).
+
+    Retourne les contributions SHAP de chaque feature, triées par impact absolu,
+    ainsi qu'une liste des 5 facteurs les plus déterminants en langage naturel.
+
+    Retourne 422 si SHAP n'est pas disponible ou si le modèle n'a pas d'artefact.
+    """
+    from app.ml.credit_scoring import explain_credit_score
+    result = explain_credit_score(customer_id)
+    if not result.get("available"):
+        return jsonify(result), 422
+    return jsonify(result)
+
+@analytics_bp.get("/rfm-segments/evaluate-k")
+@require_permission("analytics:read")
+def rfm_k_evaluation():
+    """Évalue le nombre optimal de clusters K-Means via Silhouette + Davies-Bouldin + Elbow.
+
+    Retourne l'évaluation complète pour k in [2..8], le k optimal sélectionné
+    et une interprétation lisible de la qualité de séparation.
+    """
+    try:
+        from sklearn.preprocessing import StandardScaler
+    except ImportError:
+        return jsonify({"error": "scikit-learn non disponible"}), 503
+
+    from app.ml.rfm_segmentation import evaluate_optimal_k, _load_rfm_from_feature_store, _load_rfm_dataframe_direct
+
+    df = _load_rfm_from_feature_store()
+    if df is None:
+        df = _load_rfm_dataframe_direct()
+
+    if df is None or df.empty:
+        return jsonify({"error": "Données RFM insuffisantes"}), 400
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(df[["recency", "frequency", "monetary"]])
+    result = evaluate_optimal_k(X_scaled)
+    result["n_clients"] = len(df)
+    return jsonify(result)
+
+
+
+@analytics_bp.get("/churn-risk")
+@require_permission("analytics:read")
+def churn_risk_view():
+    """Clients à risque de churn, filtrés par probabilité minimale (RF-26).
+
+    Query params :
+      min_probability (float, défaut 0.6) — seuil de probabilité de churn
+    """
+    from app.ml import rfm_segmentation
+    min_prob = float(request.args.get("min_probability", 0.6))
+    results = rfm_segmentation.latest()
+    at_risk = [
+        r for r in results
+        if r.get("churn_probability", 0) >= min_prob
+    ]
+    at_risk.sort(key=lambda r: r.get("churn_probability", 0), reverse=True)
+    return jsonify({"items": at_risk, "count": len(at_risk), "min_probability": min_prob})
+
+
+
+@analytics_bp.get("/basket")
+@require_permission("analytics:read")
+def market_basket_view():
+    """Règles d'association produits — recommandations de vente croisée (Market Basket Analysis)."""
+    from app.ml import market_basket
+    branch_id = request.args.get("branch_id")
+    min_lift  = float(request.args.get("min_lift", 1.2))
+    product   = request.args.get("product")
+    results   = market_basket.latest(branch_id=branch_id, min_lift=min_lift, product_name=product)
+    return jsonify({"items": results, "count": len(results)})
+
+
+@analytics_bp.post("/basket/train")
+@require_permission("ml:train")
+def train_market_basket():
+    """Lance l'entraînement du modèle Market Basket Analysis en arrière-plan."""
+    from app.tasks.ml_tasks import compute_market_basket_task
+    data   = request.get_json(silent=True) or {}
+    months = int(data.get("months", 6))
+    app_obj = current_app._get_current_object()
+
+    def _run():
+        with app_obj.app_context():
+            try:
+                compute_market_basket_task.run(months=months)
+            except Exception as exc:
+                app_obj.logger.error("Entraînement MARKET_BASKET échoué : %s", exc, exc_info=True)
+
+    threading.Thread(target=_run, daemon=True, name="ml_MARKET_BASKET").start()
+    return jsonify({"status": "started", "message": "Entraînement Market Basket lancé"}), 202
+
+
+@analytics_bp.get("/price-elasticity")
+@require_permission("analytics:read")
+def price_elasticity_view():
+    """Analyse de l'élasticité des remises par produit (régression log-log).
+
+    Retourne toujours un objet JSON avec :
+      - items       : liste des produits analysés (peut être vide)
+      - count       : nombre de produits
+      - diagnostic  : message explicatif si données insuffisantes ou absentes
+    """
+    from app.services.price_elasticity_service import compute_elasticity
+    branch_id = request.args.get("branch_id")
+    try:
+        months = max(1, min(int(request.args.get("months", 6)), 24))
+    except ValueError:
+        months = 6
+
+    results = compute_elasticity(months=months, branch_id=branch_id)
+
+    # compute_elasticity retourne soit un dict (avec diagnostic) soit une liste
+    if isinstance(results, dict):
+        # Déjà structuré avec items + count + diagnostic
+        return jsonify(results)
+
+    if not results:
+        return jsonify({
+            "items":      [],
+            "count":      0,
+            "diagnostic": (
+                f"Aucun produit avec suffisamment de ventes (≥ 20 lignes) "
+                f"sur les {months} derniers mois pour calculer l'élasticité. "
+                "Augmentez la période ou vérifiez que des ventes ont été enregistrées."
+            ),
+        })
+
+    return jsonify({
+        "items":      results,
+        "count":      len(results),
+        "diagnostic": None,
+    })
+
+
+
+@analytics_bp.get("/african-context")
+@require_permission("analytics:read")
+def african_context_view():
+    """
+    Retourne le contexte calendaire et économique africain (Burkina Faso).
+    Inclut : événements saisonniers, boost weekend, stress trésorerie,
+    propension crédit informel — features contextuelles pour le jury IA.
+    """
+    from datetime import date as _date
+    from app.models import CustomerPayment, CustomerPaymentStatus
+    import math
+
+    today = _date.today()
+    month = today.month
+    day   = today.day
+    weekday = today.weekday()  # 0=lun ... 4=ven, 5=sam, 6=dim
+
+    # ── 1. ÉVÉNEMENTS CALENDAIRES ──────────────────────────────────────────
+    contexts = []
+
+    # Tabaski (variable selon le calendrier hégirien — juin/juillet en 2025-2026)
+    if (month == 6 and day >= 1) or (month == 7 and day <= 10):
+        contexts.append({
+            "event":                "TABASKI_SEASON",
+            "label":               "Période Tabaski",
+            "impact":              "Forte demande alimentaire, habillement, cadeaux",
+            "stock_recommendation": "Augmenter les stocks alimentaires et textiles de 40-60 %",
+            "active": True,
+        })
+
+    # Saison des pluies (juin–septembre)
+    saison_pluies = month in (6, 7, 8, 9)
+    if saison_pluies:
+        contexts.append({
+            "event":                "SAISON_PLUIES",
+            "label":               "Saison des pluies",
+            "impact":              "Accès difficile dans certaines zones, stocks préventifs nécessaires",
+            "stock_recommendation": "Constituer des réserves pour 45-60 jours",
+            "active": True,
+        })
+
+    # Rentrée scolaire (septembre 1-20)
+    if month == 9 and day <= 20:
+        contexts.append({
+            "event":                "RENTREE_SCOLAIRE",
+            "label":               "Rentrée scolaire",
+            "impact":              "Forte demande en fournitures, cartables, uniformes",
+            "stock_recommendation": "Augmenter les stocks en articles scolaires",
+            "active": True,
+        })
+
+    # Semaine de paie (à partir du 25 du mois)
+    if day >= 25:
+        contexts.append({
+            "event":                "SEMAINE_PAIE",
+            "label":               "Semaine de paie",
+            "impact":              "Pouvoir d'achat accru — pic de ventes habituellement observé",
+            "stock_recommendation": "Assurer la disponibilité des articles à forte rotation",
+            "active": True,
+        })
+
+    # ── 2. BOOST WEEKEND (vendredi/samedi BF) ──────────────────────────────
+    # En contexte africain, le vendredi (prière) et samedi (marché) sont les
+    # pics de fréquentation commerciale.
+    weekend_boost_actif = weekday in (4, 5)  # vendredi=4, samedi=5
+    weekend_info = {
+        "actif": weekend_boost_actif,
+        "jour":  ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"][weekday],
+        "boost_estime_pct": 35 if weekday == 5 else (20 if weekday == 4 else 0),
+        "recommandation": (
+            "Renforcer les effectifs et vérifier les stocks — pic de fréquentation prévu"
+            if weekend_boost_actif else
+            "Jour standard — planification normale"
+        ),
+    }
+
+    # ── 3. INDICE STRESS TRÉSORERIE ────────────────────────────────────────
+    # Ratio : paiements EN RETARD / total paiements actifs (90 derniers jours)
+    try:
+        cutoff_90j = today - timedelta(days=90)
+        total_paiements = db.session.query(CustomerPayment).filter(
+            CustomerPayment.due_date >= cutoff_90j,
+            CustomerPayment.status.in_([
+                CustomerPaymentStatus.PENDING.value,
+                CustomerPaymentStatus.LATE.value,
+                CustomerPaymentStatus.PAID.value,
+            ])
+        ).count()
+
+        paiements_retard = db.session.query(CustomerPayment).filter(
+            CustomerPayment.due_date >= cutoff_90j,
+            CustomerPayment.status == CustomerPaymentStatus.LATE.value,
+        ).count()
+
+        if total_paiements > 0:
+            taux_retard = paiements_retard / total_paiements
+        else:
+            taux_retard = 0.0
+
+        # Score 0–1 : 0 = sain, 1 = stress maximal
+        indice_stress_tresorerie = round(taux_retard, 3)
+        if indice_stress_tresorerie < 0.10:
+            stress_label, stress_niveau = "Faible", "LOW"
+        elif indice_stress_tresorerie < 0.25:
+            stress_label, stress_niveau = "Modéré", "MEDIUM"
+        else:
+            stress_label, stress_niveau = "Élevé", "HIGH"
+
+        stress_info = {
+            "indice_stress_tresorerie": indice_stress_tresorerie,
+            "niveau": stress_niveau,
+            "label":  stress_label,
+            "taux_retard_pct": round(taux_retard * 100, 1),
+            "paiements_analyses": total_paiements,
+            "recommandation": (
+                "Relances prioritaires — risque de rupture de trésorerie"
+                if stress_niveau == "HIGH" else
+                "Surveillance accrue des échéances en cours"
+                if stress_niveau == "MEDIUM" else
+                "Situation saine — continuer le suivi normal"
+            ),
+        }
+    except Exception:
+        stress_info = {
+            "indice_stress_tresorerie": None,
+            "niveau": "UNKNOWN",
+            "label": "Données insuffisantes",
+            "recommandation": "Enregistrer les paiements clients pour activer cet indicateur",
+        }
+
+    # ── 4. PROPENSION CRÉDIT INFORMEL ──────────────────────────────────────
+    # Part des clients actifs sans historique de paiement formel enregistré.
+    # Proxy : clients ayant acheté (90j) mais sans aucune entrée CustomerPayment.
+    try:
+        cutoff_90j_dt = datetime.combine(_date.today() - timedelta(days=90), time.min)
+        clients_actifs_ids = (
+            db.session.query(Sale.customer_id)
+            .filter(
+                Sale.status == SaleStatus.VALIDEE.value,
+                Sale.customer_id.isnot(None),
+                Sale.created_at >= cutoff_90j_dt,
+            )
+            .distinct()
+            .all()
+        )
+        ids_actifs = {r[0] for r in clients_actifs_ids}
+
+        clients_avec_paiement = (
+            db.session.query(CustomerPayment.customer_id)
+            .filter(CustomerPayment.customer_id.in_(ids_actifs))
+            .distinct()
+            .all()
+        )
+        ids_avec_paiement = {r[0] for r in clients_avec_paiement}
+
+        nb_actifs = len(ids_actifs)
+        nb_sans_paiement_formel = len(ids_actifs - ids_avec_paiement)
+
+        propension_credit_informel = (
+            round(nb_sans_paiement_formel / nb_actifs, 3) if nb_actifs > 0 else 0.0
+        )
+
+        credit_informel_info = {
+            "propension_credit_informel": propension_credit_informel,
+            "pct": round(propension_credit_informel * 100, 1),
+            "clients_actifs_90j": nb_actifs,
+            "clients_sans_historique_formel": nb_sans_paiement_formel,
+            "interpretation": (
+                "Forte dépendance au crédit informel — risque de non-recouvrement élevé"
+                if propension_credit_informel > 0.5 else
+                "Dépendance modérée — sensibiliser à la formalisation des crédits"
+                if propension_credit_informel > 0.25 else
+                "Bonne formalisation du crédit client"
+            ),
+        }
+    except Exception:
+        credit_informel_info = {
+            "propension_credit_informel": None,
+            "interpretation": "Données insuffisantes pour calculer cet indicateur",
+        }
+
+    return jsonify({
+        "date":                    today.isoformat(),
+        "active_contexts":         contexts,
+        "count":                   len(contexts),
+        "weekend_boost":           weekend_info,
+        "stress_tresorerie":       stress_info,
+        "credit_informel":         credit_informel_info,
+        "saison_pluies":           saison_pluies,
+    })
 
 # ---------------------------------------------------------------------------
 # Analyse de cohortes clients — Feature E

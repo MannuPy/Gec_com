@@ -1,5 +1,7 @@
 # 27. Modèle SaaS Multi-tenant
 
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 ## 27.1 Positionnement
 
 GesCom-BF est conçu pour être exploité par **plusieurs entreprises clientes (tenants)** indépendantes. Ce chapitre détaille le modèle SaaS multi-tenant cible (V2 PostgreSQL) et le mode mono-tenant actif en production (V1 MySQL / PythonAnywhere).
@@ -161,7 +163,7 @@ stateDiagram-v2
 | 200 tenants × ~20 000 produits | Index par schéma (cf. `14-MPD.md`), pas de table partagée géante — chaque schéma reste de taille gérable |
 | Connexions PostgreSQL | Pool de connexions partagé (PgBouncer recommandé en perspective V2) pour éviter l'épuisement de connexions avec de nombreux schémas |
 | Migrations | Script séquentiel `migrate_all_tenants.py` (cf. `25-DEPLOIEMENT-CICD.md`) — pour > 200 tenants, paralléliser par lots |
-| Tâches Celery planifiées (ETL, IA) | Itération par tenant actif, avec limitation de concurrence pour éviter la saturation CPU lors des entraînements hebdomadaires |
+| Tâches planifiées (ETL, IA) | En production mono-tenant (PythonAnywhere) : `scripts/cron_train_all.py` via Scheduled Tasks (Celery supprimé). En mode multi-tenant VPS futur : itération par tenant actif avec threads natifs Python, limitation de concurrence pour éviter la saturation CPU lors des entraînements nocturnes |
 
 ## 27.10 Synthèse : ce que le multi-tenant apporte au projet
 

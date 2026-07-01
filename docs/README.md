@@ -1,8 +1,8 @@
 # GesCom-BF — Documentation complète de conception
 
-Solution SaaS de gestion commerciale et de stock pour les quincailleries et boutiques de pièces détachées du Burkina Faso (Flask · React/TypeScript · PostgreSQL/MySQL · IA : Prophet/XGBoost/scikit-learn).
+Solution SaaS de gestion commerciale et de stock pour les quincailleries et boutiques de pièces détachées du Burkina Faso (Flask 3.0 · React 18/TypeScript/Vite · MySQL/PythonAnywhere · IA : Prophet + scikit-learn + SHAP + Apriori).
 
-Cette documentation (32 fichiers) couvre l'intégralité du cycle de conception : analyse, modélisation Merise/UML, architecture, base de données, APIs, sécurité, intelligence artificielle, tests, déploiement (Docker Compose + PythonAnywhere MySQL), SaaS multi-tenant et perspectives.
+Cette documentation (35+ fichiers) couvre l'intégralité du cycle de conception : analyse, modélisation Merise/UML, architecture, base de données, APIs, sécurité, intelligence artificielle, tests (93 pytest), déploiement CI/CD (PythonAnywhere + GitHub Actions), SaaS multi-tenant et perspectives.
 
 > Conventions de référencement : **RF-XX** (exigence fonctionnelle), **RNF-XX** (exigence non fonctionnelle), **RG-XX** (règle de gestion), **UC-XX** (cas d'utilisation). Voir détails et glossaire en `30-GLOSSAIRE-ANNEXES.md`.
 
@@ -29,7 +29,7 @@ Cette documentation (32 fichiers) couvre l'intégralité du cycle de conception 
 | Fichier | Contenu |
 |---|---|
 | [08-ARCHITECTURE-TECHNIQUE.md](08-ARCHITECTURE-TECHNIQUE.md) | Architecture 3-tiers, stack, volumétrie, déploiement |
-| [09-BACKEND-FLASK.md](09-BACKEND-FLASK.md) | Structure backend, blueprints, services, Celery |
+| [09-BACKEND-FLASK.md](09-BACKEND-FLASK.md) | Structure backend, blueprints, services, threads + cron (PythonAnywhere) |
 | [10-FRONTEND-REACT.md](10-FRONTEND-REACT.md) | Structure frontend, écrans, PWA, i18n |
 
 ## Partie 4 — Base de données & APIs
@@ -50,8 +50,9 @@ Cette documentation (32 fichiers) couvre l'intégralité du cycle de conception 
 | Fichier | Contenu |
 |---|---|
 | [19-ANALYSE-DE-DONNEES.md](19-ANALYSE-DE-DONNEES.md) | Positionnement du module, pipeline global |
-| [20-MACHINE-LEARNING.md](20-MACHINE-LEARNING.md) | Prophet/XGBoost, scoring crédit, RFM/K-Means, Isolation Forest |
-| [21-PIPELINE-ETL.md](21-PIPELINE-ETL.md) | ETL, Great Expectations, MLflow, data lineage |
+| [20-MACHINE-LEARNING.md](20-MACHINE-LEARNING.md) | Modules ML/BI : Prophet, scoring crédit (RF+SHAP), K-Means, Isolation Forest, Apriori, élasticité prix, contexte BF — avec classification honnête ML vs BI vs heuristique |
+| [21-PIPELINE-ETL.md](21-PIPELINE-ETL.md) | ETL, MLflow, data lineage, entraînement via threads + cron |
+| [ANALYTIQUE-ML-IA-COMPLET.md](ANALYTIQUE-ML-IA-COMPLET.md) | **Référence complète** — tous les modules analytiques/ML/IA en détail |
 | [22-DASHBOARD-BI.md](22-DASHBOARD-BI.md) | Tableau de bord temps réel, exports PDF |
 
 ## Partie 6 — Implémentation & Tests
@@ -84,7 +85,7 @@ Cette documentation (32 fichiers) couvre l'intégralité du cycle de conception 
 - **Pour une vue d'ensemble rapide** : 00, 01, 31.
 - **Pour la modélisation (jury Merise/UML)** : 06, 07, 12, 13, 14.
 - **Pour l'implémentation technique** : 08, 09, 10, 16, 17, 18.
-- **Pour le module IA** : 19, 20, 21.
+- **Pour le module IA** : 19, 20, 21, ANALYTIQUE-ML-IA-COMPLET.
 - **Pour la soutenance "innovation & vision produit"** : 26, 27, 29, 31.
 - **Pour déployer en production (PythonAnywhere + MySQL)** : **32**, puis 25 §25.9, puis `backend/.env.pythonanywhere.example`.
 

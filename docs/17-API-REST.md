@@ -109,7 +109,13 @@ components:
           type: integer
           enum: [0, 5, 10, 15, 20]
           default: 0
-        approved_by_user_id: { type: string, format: uuid, nullable: true }
+        approved_by_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: >
+            UUID de l'administrateur ayant approuvé la remise.
+            **Obligatoire si discount_rate > 0** (validé serveur — 422 sinon, RG-23).
         channel: { type: string, enum: [ONLINE, OFFLINE] }
         offline_uuid: { type: string, format: uuid, nullable: true }
         client_created_at: { type: string, format: date-time, nullable: true }
@@ -468,7 +474,7 @@ paths:
               properties:
                 model_type:
                   type: string
-                  enum: [DEMAND_FORECAST, CREDIT_SCORING, ANOMALY_DETECTION, ABC_XYZ, RFM]
+                  enum: [DEMAND_FORECAST, CREDIT_SCORING, ANOMALY_DETECTION, ABC_XYZ, RFM_SEGMENTATION, MARKET_BASKET]
                 async:
                   type: boolean
                   default: false
@@ -494,6 +500,230 @@ paths:
                   task_id: { type: string }
                   model_type: { type: string }
         '400': { description: Type de modèle inconnu ou manquant }
+
+
+  /analytics/credit-scores/{customer_id}/explain:
+    get:
+      summary: "Explication SHAP du score crédit d'un client"
+      tags: [Analytics]
+      security: [ { bearerAuth: [] } ]
+      description: |
+        Retourne les facteurs les plus influents sur le score de solvabilité via SHAP TreeExplainer.
+        Requiert que le modèle Random Forest ait été entraîné et son artefact sauvegardé.
+        Requiert `analytics:read`.
+      parameters:
+        - in: path
+          name: customer_id
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Explication SHAP
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customer_id: { type: string }
+                  score: { type: number }
+                  risk_level: { type: string, enum: [FAIBLE, MOYEN, ELEVE] }
+                  shap_factors:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        feature: { type: string }
+                        label_fr: { type: string }
+                        shap_value: { type: number }
+                        direction: { type: string, enum: [positif, negatif] }
+        '503': { description: Modèle ou artefact SHAP non disponible }
+
+  /analytics/rfm-segments/evaluate-k:
+    get:
+      summary: Évaluation du nombre optimal de clusters K-Means (Silhouette + Elbow)
+      tags: [Analytics]
+      security: [ { bearerAuth: [] } ]
+      description: |
+        Teste k=2 à 8 clusters sur les données RFM actuelles.
+        Retourne silhouette_score, davies_bouldin_score et inertia par k pour
+        permettre au jury de visualiser la courbe de coude (Elbow).
+        Requiert `analytics:read`.
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  k_optimal: { type: integer }
+                  methode: { type: string }
+                  evaluation:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        k: { type: integer }
+                        silhouette: { type: number }
+                        davies_bouldin: { type: number }
+                        inertia: { type: number }
+
+  /analytics/churn-risk:
+    get:
+      summary: Probabilité de churn par segment RFM
+      tags: [Analytics]
+      security: [ { bearerAuth: [] } ]
+      description: |
+        Calcule P(churn) = 1 - exp(-λ × recency) avec demi-vie = médiane de récence.
+        Ajustement par fréquence. Retourne risk_level (LOW/MEDIUM/HIGH) et action recommandée.
+        Requiert `analytics:read`.
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  customers:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        customer_id: { type: string }
+                        churn_probability: { type: number, minimum: 0, maximum: 1 }
+                        churn_risk: { type: string, enum: [LOW, MEDIUM, HIGH] }
+                        churn_action: { type: string }
+
+  /analytics/basket:
+    get:
+      summary: Règles d'association produits (Market Basket Analysis)
+      tags: [Analytics]
+      security: [ { bearerAuth: [] } ]
+      description: |
+        Retourne les règles d'association issues de l'algorithme Apriori (mlxtend).
+        Si mlxtend est absent ou aucune règle trouvée, repli sur co-occurrence.
+        Requiert `analytics:read`.
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  rules:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        antecedents: { type: array, items: { type: string } }
+                        consequents: { type: array, items: { type: string } }
+                        support: { type: number }
+                        confidence: { type: number }
+                        lift: { type: number }
+                  algorithm: { type: string, enum: [APRIORI, CO_OCCURRENCE_FALLBACK] }
+                  trained_at: { type: string, format: date-time }
+
+  /analytics/basket/train:
+    post:
+      summary: Entraîner le modèle Market Basket
+      tags: [Analytics]
+      security: [ { bearerAuth: [] } ]
+      description: |
+        Lance l'entraînement dans un thread asynchrone avec contexte Flask propre.
+        Réponse immédiate 202 — résultat consultable via GET /analytics/basket.
+        Requiert `ml:train`.
+      responses:
+        '202':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [started] }
+                  model_type: { type: string, example: MARKET_BASKET }
+
+  /analytics/price-elasticity:
+    get:
+      summary: Analyse d'élasticité prix / remises
+      tags: [Analytics]
+      security: [ { bearerAuth: [] } ]
+      description: |
+        Régression log-log : ln(quantité) = α + β × ln(1 - taux_remise).
+        β est l'élasticité : β < -1 = demande élastique (baisser la remise réduit les ventes).
+        Recommandations de politique de remise incluses.
+        Données source : Sale.discount_rate (entier 0,5,10,15,20) + SaleLine.unit_price_applied.
+        Requiert `analytics:read`.
+      parameters:
+        - in: query
+          name: months
+          schema: { type: integer, default: 6 }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  elasticity: { type: number }
+                  interpretation: { type: string }
+                  r_squared: { type: number }
+                  recommandation_politique: { type: string }
+                  par_taux:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        taux_remise_pct: { type: integer }
+                        quantite_moyenne: { type: number }
+                        nb_ventes: { type: integer }
+
+  /analytics/african-context:
+    get:
+      summary: Contexte économique africain — Burkina Faso
+      tags: [Analytics]
+      security: [ { bearerAuth: [] } ]
+      description: |
+        Features contextuelles africaines calculées en temps réel :
+        - Événements calendaires actifs (Tabaski, saison des pluies, rentrée, semaine de paie)
+        - Boost weekend vendredi/samedi (marché hebdomadaire BF)
+        - Indice stress trésorerie (taux de retard CustomerPayment sur 90j)
+        - Propension crédit informel (clients actifs sans historique de paiement formel)
+        Requiert `analytics:read`.
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  date: { type: string, format: date }
+                  saison_pluies: { type: boolean }
+                  active_contexts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        event: { type: string }
+                        label: { type: string }
+                        impact: { type: string }
+                        stock_recommendation: { type: string }
+                  weekend_boost:
+                    type: object
+                    properties:
+                      actif: { type: boolean }
+                      jour: { type: string }
+                      boost_estime_pct: { type: integer }
+                  stress_tresorerie:
+                    type: object
+                    properties:
+                      indice_stress_tresorerie: { type: number, minimum: 0, maximum: 1 }
+                      niveau: { type: string, enum: [LOW, MEDIUM, HIGH] }
+                      taux_retard_pct: { type: number }
+                  credit_informel:
+                    type: object
+                    properties:
+                      propension_credit_informel: { type: number, minimum: 0, maximum: 1 }
+                      pct: { type: number }
+                      interpretation: { type: string }
 
   /sync/sales:
     post:
@@ -645,6 +875,6 @@ paths:
 | Sales | `GET/POST /sales`, `POST /sales/sync`, `GET /sales/{id}/receipt` (PDF), `POST /sales/{id}/refund`, `GET /sales/refunds/pending`, `PATCH /sales/{id}/refund/approve`, `PATCH /sales/{id}/refund/reject`, `GET /sales/credits`, `POST /sales/customers/{id}/settle` |
 | Customers | `GET/POST /sales/customers`, `GET/PUT /sales/customers/{id}`, `GET/POST /sales/customers/{id}/payments`, `PUT /sales/customers/{id}/payments/{pid}` |
 | Inventories | `POST /inventory`, `GET /inventory/{id}`, `POST /inventory/{id}/validate` |
-| Reports | `GET /reports/dashboard/summary`, `GET /reports/dashboard/realtime`, `GET /reports/dashboard/stream` (SSE), `GET /reports/stock/export` (Excel) |
-| Analytics | `GET /analytics/kpis`, `GET /analytics/abc-xyz`, `GET /analytics/ml/models`, `POST /analytics/ml/train` (body), `POST /analytics/ml/train/{type}` (URL param) |
-| AI | `GET /analytics/predictions/stock`, `GET /analytics/predictions/credit/{id}`, `GET /analytics/predictions/anomalies` |
+| Reports | `GET /reports/dashboard`, `GET /reports/dashboard/realtime`, `GET /reports/dashboard/stream` (SSE), `GET /reports/vendeur/dashboard`, `GET /reports/export` (PDF), `GET /reports/export/sales` (Excel), `GET /reports/export/stock` (Excel), `GET /reports/export/credits` (Excel), `GET /reports/credits/pdf` (PDF), `GET /reports/compta/summary`, `GET /reports/branches/compare` |
+| Analytics | `GET /analytics/dashboard`, `GET /analytics/sales-trend`, `GET /analytics/forecast`, `GET /analytics/forecast/{product_id}/{branch_id}`, `GET /analytics/credit-scores`, `GET /analytics/credit-scores/{id}/explain` (SHAP), `GET /analytics/anomalies`, `GET /analytics/abc-xyz`, `GET /analytics/rfm-segments`, `GET /analytics/rfm-segments/evaluate-k` (Silhouette/Elbow), `GET /analytics/churn-risk`, `GET /analytics/basket`, `POST /analytics/basket/train`, `GET /analytics/price-elasticity`, `GET /analytics/african-context`, `GET /analytics/cohorts`, `GET /analytics/clv`, `GET /analytics/ml/models`, `POST /analytics/ml/train` (body JSON), `POST /analytics/ml/train/{type}` (URL param) |
+| Sync | `POST /sync/sales` — synchronisation ventes offline |

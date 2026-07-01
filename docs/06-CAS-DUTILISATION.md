@@ -1,3 +1,5 @@
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 # 6. Cas d'utilisation (Use Cases)
 
 ## 6.1 Diagramme global des cas d'utilisation
@@ -63,8 +65,8 @@ flowchart LR
 |---|---|
 | **Acteur principal** | Tout utilisateur (Administrateur, Magasinier, Vendeur) |
 | **Préconditions** | L'utilisateur possède un compte actif sur un tenant |
-| **Scénario principal** | 1. L'utilisateur saisit email + mot de passe.<br>2. Le système vérifie les identifiants et le statut du compte.<br>3. Le système génère un access token (15 min) et un refresh token (7 jours), liés au `tenant_id`.<br>4. Le système journalise l'événement `LOGIN_SUCCESS`. |
-| **Scénarios alternatifs** | A1 : identifiants invalides → `401 Unauthorized` + log `LOGIN_FAILED`.<br>A2 : compte désactivé → `403 Forbidden`. |
+| **Scénario principal** | 1. L'utilisateur saisit email + mot de passe.<br>2. Le système vérifie les identifiants et le statut du compte.<br>3. Le système génère un access token (15 min) et un refresh token (7 jours), liés au `tenant_id`.<br>4. Si `must_change_password=True` dans le JWT, toute route protégée retourne `403 PASSWORD_CHANGE_REQUIRED` jusqu'au changement de mot de passe (RF-05, validé côté serveur).<br>5. Le système journalise l'événement `LOGIN_SUCCESS`. |
+| **Scénarios alternatifs** | A1 : identifiants invalides → `401 Unauthorized` + log `LOGIN_FAILED`.<br>A2 : compte désactivé → `403 Forbidden`.<br>A3 : mot de passe temporaire non changé → `403 PASSWORD_CHANGE_REQUIRED` sur toutes les routes protégées (RF-05). |
 | **Postconditions** | L'utilisateur est authentifié ; les tokens sont stockés côté client (cookie httpOnly pour le refresh, mémoire pour l'access). |
 | **Exigences liées** | RF-02, RNF-09 |
 
@@ -106,8 +108,8 @@ flowchart LR
 |---|---|
 | **Acteur principal** | Vendeur, avec accord verbal de l'Administrateur |
 | **Préconditions** | Une vente est en cours de saisie |
-| **Scénario principal** | 1. Le vendeur sélectionne un taux de remise parmi {5 %, 10 %, 15 %, 20 %} (RG-22).<br>2. Le système exige la sélection de l'administrateur ayant donné son accord (`approved_by_user_id` — RG-23).<br>3. Le système recalcule le total de la vente.<br>4. L'événement `DISCOUNT_APPLIED` est journalisé. |
-| **Scénarios alternatifs** | A1 : aucun administrateur sélectionné → la remise est rejetée (validation API). |
+| **Scénario principal** | 1. Le vendeur sélectionne un taux de remise parmi {5 %, 10 %, 15 %, 20 %} (RG-22).<br>2. Le système exige la sélection de l'administrateur ayant donné son accord (`approved_by_id` — RG-23).<br>3. Le système recalcule le total de la vente.<br>4. L'événement `DISCOUNT_APPLIED` est journalisé. |
+| **Scénarios alternatifs** | A1 : `approved_by_id` absent alors que `discount_rate > 0` → rejet serveur `422 VALIDATION_ERROR` (RF-16/RG-23, validé côté serveur). |
 | **Exigences liées** | RF-16, RG-22, RG-23 |
 
 ### UC-13 : Vendre à crédit (extension de UC-11)
@@ -133,7 +135,7 @@ flowchart LR
 
 | Champ | Détail |
 |---|---|
-| **Acteur principal** | Système (tâche planifiée Celery, quotidienne) |
+| **Acteur principal** | Système (cron PythonAnywhere quotidien — `scripts/cron_train_all.py`) |
 | **Préconditions** | Historique de ventes suffisant (≥ 60 jours recommandé) pour le couple produit/site |
 | **Scénario principal** | 1. Le pipeline ETL extrait l'historique de ventes par produit/site (RG-37).<br>2. Le modèle Prophet génère une prévision de demande à 7-30 jours, intégrant la saisonnalité locale.<br>3. XGBoost affine la prévision avec variables exogènes.<br>4. Le système compare le stock prévisionnel au seuil minimum (RG-38).<br>5. Si rupture prévue, une alerte est créée et notifiée à l'Administrateur avec une quantité de commande recommandée. |
 | **Exigences liées** | RF-25, RG-37, RG-38, RG-40 |
@@ -144,7 +146,7 @@ flowchart LR
 |---|---|
 | **Acteur principal** | Système (tâche planifiée), consultation par Administrateur |
 | **Préconditions** | Des transactions récentes existent |
-| **Scénario principal** | 1. Le modèle Isolation Forest analyse les ventes, remises, mouvements de stock récents.<br>2. Les transactions atypiques (score d'anomalie élevé) sont signalées : remise élevée sans accord administrateur tracé, vente hors horaires habituels, mouvement de stock disproportionné.<br>3. Une alerte temps réel est publiée via Redis pub/sub et affichée au tableau de bord (WebSocket). |
+| **Scénario principal** | 1. Le modèle Isolation Forest analyse les ventes, remises, mouvements de stock récents.<br>2. Les transactions atypiques (score d'anomalie élevé) sont signalées : remise élevée sans accord administrateur tracé, vente hors horaires habituels, mouvement de stock disproportionné.<br>3. Une alerte est enregistrée en base et affichée au tableau de bord (polling côté frontend — SSE désactivé sur PythonAnywhere via `DISABLE_SSE=true`). |
 | **Exigences liées** | RF-27, RG-23 |
 
 ## 6.3 Récapitulatif des cas d'utilisation par acteur

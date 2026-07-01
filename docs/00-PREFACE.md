@@ -1,3 +1,5 @@
+> **Dernière mise à jour :** 1er juillet 2026 — mise à jour conformité code v2.
+
 # Préface
 
 ## À propos de ce document
@@ -50,6 +52,8 @@ Créer une solution SaaS **simple, robuste, abordable et résiliente** (toléran
 |---|---|---|
 | 0.1 | - | Première version (notes de travail) |
 | 1.0 | 2026-06-14 | Refonte complète : ajout UML, API REST, sécurité, ML, tests, offline, multi-tenant, glossaire |
+| 1.1 | 2026-06-24 | Corrections pré-soutenance : Market Basket (Apriori), Élasticité prix, Contexte africain BF, /health, Sentry, tests unitaires (93 pytest), CI/CD actif, honnêteté sur ABC/XYZ (BI) et Churn (heuristique) |
+| 2.0 | 2026-07-01 | Mise à jour conformité code v2 : 155 tests (127 ML unitaires + 17 API + 15 sécurité RBAC + 12 rôles RBAC), Celery/Redis supprimés → threads Python natifs + cron PythonAnywhere (`scripts/cron_train_all.py`), MySQL en production (PythonAnywhere), RF-05 `must_change_password` côté serveur, RF-16/RG-23 `approved_by_id` obligatoire (422), token_blocklist SQL, Flask-Limiter 3.8.0 `memory://`, SSE désactivé sur PythonAnywhere (fallback polling), 10 migrations Alembic, CI/CD GitHub Actions avec `sshpass` |
 
 ## Sommaire général du dossier `docs/`
 
@@ -87,3 +91,6 @@ Créer une solution SaaS **simple, robuste, abordable et résiliente** (toléran
 | `29-WIREFRAMES-UI.md` | Maquettes des écrans clés |
 | `30-GLOSSAIRE-ANNEXES.md` | Glossaire et annexes techniques |
 | `31-CONCLUSION-PERSPECTIVES.md` | Bilan et évolutions futures |
+| `32-GUIDE-DEPLOIEMENT-PYTHONANYWHERE.md` | Guide de déploiement PythonAnywhere |
+| `33-GUIDE-COMPLET-MISE-EN-LIGNE-PYTHONANYWHERE.md` | Guide complet mise en ligne |
+| `ANALYTIQUE-ML-IA-COMPLET.md` | Document de référence complet — tous les modules analytiques/ML/IA |

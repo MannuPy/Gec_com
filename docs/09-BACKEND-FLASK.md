@@ -1,205 +1,327 @@
 # 9. Backend Flask
 
+> **Dernière mise à jour :** 24 juin 2026 — reflète l'état réel du code après corrections pré-soutenance.
+
 ## 9.1 Arborescence du projet
 
 ```text
 backend/
 ├── app/
-│   ├── __init__.py            # factory create_app()
-│   ├── config.py              # configurations (dev/staging/prod)
-│   ├── extensions.py          # init SQLAlchemy, JWT, Celery, Redis
-│   ├── middleware/
-│   │   ├── tenant.py          # résolution du tenant depuis le JWT -> set search_path
-│   │   └── error_handlers.py  # gestion centralisée des erreurs
-│   ├── auth/
-│   │   ├── routes.py
-│   │   ├── schemas.py          # Marshmallow
-│   │   └── services.py
-│   ├── users/
-│   ├── products/
-│   ├── suppliers/
-│   ├── inventory/              # dépôt + transferts + inventaires physiques
-│   ├── sales/
-│   ├── reports/
-│   ├── analytics/
-│   ├── ai/                     # endpoints prévisions, scoring, anomalies
-│   ├── audit/
-│   ├── sync/                   # synchronisation offline
-│   └── models/
-│       ├── company.py
-│       ├── user.py
-│       ├── product.py
-│       ├── stock.py
-│       ├── sale.py
-│       ├── transfer.py
-│       ├── inventory.py
-│       ├── audit.py
-│       └── prediction.py
-├── migrations/                 # Alembic (multi-schéma)
-├── tasks/                       # tâches Celery
-│   ├── ml_tasks.py
-│   ├── alert_tasks.py
-│   └── sync_tasks.py
-├── tests/
-│   ├── unit/
-│   └── integration/
-├── ml/
-│   ├── pipelines/
+│   ├── __init__.py              # factory create_app()
+│   ├── config.py                # configurations (Dev/Prod)
+│   ├── extensions.py            # db, migrate, jwt, cors, ma, limiter
+│   ├── celery_app.py
+│   ├── cli.py
+│   ├── seed.py / seed_demo.py
+│   ├── blueprints/
+│   │   ├── analytics/           # 20 endpoints ML/BI (threading)
+│   │   ├── auth/                # /login (rate-limited), /register, /refresh, /logout
+│   │   ├── inventory/
+│   │   ├── products/
+│   │   ├── reports/
+│   │   ├── sales/
+│   │   ├── stock/
+│   │   ├── suppliers/
+│   │   ├── transfers/
+│   │   └── users/
+│   ├── ml/
+│   │   ├── common.py            # utilitaires ML partagés
+│   │   ├── abc_xyz.py
+│   │   ├── anomaly_detection.py
+│   │   ├── credit_scoring.py    # + SHAP TreeExplainer
+│   │   ├── demand_forecast.py   # + Prophet holidays BF
+│   │   ├── market_basket.py     # Apriori + co-occurrence fallback
+│   │   └── rfm_segmentation.py  # + Silhouette/Elbow + Churn proba
 │   ├── models/
-│   └── training/
-├── wsgi.py
+│   │   ├── audit.py
+│   │   ├── auth.py
+│   │   ├── base.py
+│   │   ├── catalog.py
+│   │   ├── company.py
+│   │   ├── feature_store.py
+│   │   ├── inventory.py
+│   │   ├── ml.py
+│   │   ├── sales.py             # Sale, SaleLine, Customer, CustomerPayment
+│   │   ├── supplier.py
+│   │   └── transfer.py
+│   ├── services/
+│   │   ├── analytics_service.py
+│   │   ├── etl_service.py
+│   │   ├── price_elasticity_service.py  # NEW
+│   │   ├── reference_service.py
+│   │   ├── sale_service.py
+│   │   ├── stock_service.py
+│   │   └── tenant_provisioning.py
+│   ├── tasks/
+│   │   ├── etl_tasks.py
+│   │   └── ml_tasks.py          # TRAIN_FUNCTIONS : 6 modules
+│   ├── middleware/
+│   │   └── tenant.py
+│   └── utils/
+│       ├── dates.py
+│       ├── db_dialect.py
+│       ├── decorators.py
+│       ├── errors.py
+│       ├── pdf.py
+│       ├── phonetic.py
+│       └── tenant.py
+├── migrations/
+├── tests/
 ├── requirements.txt
+├── wsgi.py
 └── Dockerfile
+
+# À la racine du dépôt (hors backend/) :
+scripts/
+└── cron_train_all.py    # Script cron PythonAnywhere — ETL + 6 modèles ML (cf. §9.5)
 ```
 
-## 9.2 Organisation en Blueprints
+## 9.2 Extensions Flask (`app/extensions.py`)
 
-| Blueprint | Préfixe d'enregistrement | Routes exposées | Responsabilité |
+Toutes les extensions sont initialisées dans `extensions.py` et liées à l'app dans `create_app()` via `ext.init_app(app)` :
+
+```python
+from flask_sqlalchemy import SQLAlchemy
+from flask_migrate import Migrate
+from flask_jwt_extended import JWTManager
+from flask_cors import CORS
+from flask_marshmallow import Marshmallow
+from flask_limiter import Limiter
+
+db      = SQLAlchemy()
+migrate = Migrate()
+jwt     = JWTManager()
+cors    = CORS()
+ma      = Marshmallow()
+
+def _get_real_ip():
+    """Priorité : CF-Connecting-IP → X-Forwarded-For → remote_addr."""
+    from flask import request
+    return (
+        request.headers.get("CF-Connecting-IP")
+        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or request.remote_addr
+    )
+
+limiter = Limiter(
+    key_func=_get_real_ip,
+    default_limits=[],          # pas de limite globale — limites par route uniquement
+    storage_uri="memory://",    # PythonAnywhere : pas de Redis
+)
+```
+
+> `storage_uri="memory://"` : les compteurs sont en RAM. Compatibilité PythonAnywhere garantie. Les compteurs sont réinitialisés au redémarrage de l'app (acceptable pour ce contexte mono-tenant).
+
+## 9.3 Organisation en Blueprints
+
+| Blueprint | Préfixe | Routes principales | Responsabilité |
 |---|---|---|---|
-| `auth` | `/api/v1/auth` | `/login`, `/refresh`, `/logout`, `/change-password` | Authentification JWT |
-| `users` | `/api/v1/users` | `/`, `/<id>`, `/roles`, `/audit-logs` | CRUD utilisateurs, rôles, journal d'audit |
-| `products` | `/api/v1` | `/products`, `/categories`, `/brands`, `/branches` | Catalogue produits, sites |
-| `suppliers` | `/api/v1` | `/suppliers`, `/receptions`, `/receptions/<id>/validate` | Fournisseurs, réceptions de marchandises |
-| `stock` | `/api/v1/stock` | `/`, `/<id>`, `/movements` | Consultation du stock par site |
+| `auth` | `/api/v1/auth` | `/login` *(10/min, 50/h)*, `/register` *(3/h)*, `/refresh`, `/logout`, `/change-password` | JWT + rate limiting |
+| `users` | `/api/v1/users` | `/`, `/<id>`, `/roles`, `/audit-logs` | CRUD utilisateurs, rôles |
+| `products` | `/api/v1` | `/products`, `/categories`, `/brands`, `/branches` | Catalogue produits |
+| `suppliers` | `/api/v1` | `/suppliers`, `/receptions`, `/receptions/<id>/validate` | Fournisseurs, réceptions |
+| `stock` | `/api/v1/stock` | `/`, `/<id>`, `/movements` | Stock par site |
 | `transfers` | `/api/v1/transfers` | `/`, `/<id>`, `/<id>/send`, `/<id>/receive` | Transferts inter-sites |
-| `inventory` | `/api/v1/inventory` | `/`, `/<id>`, `/<id>/lines`, `/<id>/validate` | Inventaires physiques |
-| `sales` | `/api/v1/sales` | `/`, `/<id>`, `/sync`, `/customers`, `/refunds/pending`, `/<id>/refund`, `/<id>/refund/approve`, `/<id>/refund/reject`, `/credits`, `/customers/<id>/settle` | Ventes, avoirs, clients, encours crédit |
-| `reports` | `/api/v1/reports` | `/dashboard/summary`, `/dashboard/realtime`, `/dashboard/stream`, `/stock/export` | Tableaux de bord, exports |
-| `analytics` | `/api/v1/analytics` | `/kpis`, `/abc-xyz`, `/ml/models`, `/ml/train`, `/ml/train/<type>` | KPIs, classification, entraînement ML |
+| `inventory` | `/api/v1/inventory` | `/`, `/<id>`, `/lines`, `/<id>/validate` | Inventaires physiques |
+| `sales` | `/api/v1/sales` | `/`, `/<id>`, `/sync`, `/customers`, `/credits`, `/refunds/...` | Ventes, avoirs, crédits |
+| `reports` | `/api/v1/reports` | `/dashboard/summary`, `/dashboard/realtime`, `/stock/export` | Dashboards, exports |
+| `analytics` | `/api/v1/analytics` | 20 endpoints — cf. §9.4 | BI + ML + IA |
 
-> **Note d'implémentation** : `products_bp` et `suppliers_bp` sont enregistrés avec le préfixe `/api/v1` (sans suffixe de module) car leurs routes déclarent elles-mêmes `/products`, `/suppliers`, `/receptions`, etc. Ceci permet à ces blueprints de partager le même préfixe d'API racine sans collision.
+## 9.4 Blueprint `analytics` — 20 endpoints
 
-> **Journal d'audit** : exposé via `GET /api/v1/users/audit-logs` (blueprint `users`), pas sous `/audit`. Filtres : `event_type`, `user_id`, `page`, `per_page`.
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/dashboard` | KPIs étendu (marges, multi-site) |
+| GET | `/kpis` | Indicateurs synthétiques |
+| GET | `/sales-trend` | Série temporelle des ventes |
+| GET | `/forecast` | Prévisions demande + alertes rupture |
+| GET | `/credit-scores` | Scoring crédit clients |
+| GET | `/credit-scores/<id>/explain` | **[NEW]** Explication SHAP du score crédit |
+| GET | `/anomalies` | Anomalies détectées (IsolationForest) |
+| GET | `/abc-xyz` | Classification ABC/XYZ produits |
+| GET | `/rfm-segments` | Segmentation RFM clients |
+| GET | `/rfm-segments/evaluate-k` | **[NEW]** Silhouette + Elbow — choix k optimal |
+| GET | `/churn-risk` | **[NEW]** Probabilité de churn par client |
+| GET | `/basket` | **[NEW]** Règles d'association (Market Basket) |
+| POST | `/basket/train` | **[NEW]** Entraîner Market Basket (thread async) |
+| GET | `/price-elasticity` | **[NEW]** Élasticité prix/remise |
+| GET | `/african-context` | **[NEW]** Contexte africain BF (saisonnalité, stress trésorerie, crédit informel) |
+| GET | `/cohorts` | Matrice de rétention par cohorte |
+| GET | `/clv` | Customer Lifetime Value |
+| GET | `/ml/models` | Registre des modèles entraînés |
+| POST | `/ml/train` | Déclencher entraînement (body param) |
+| POST | `/ml/train/<type>` | Déclencher entraînement (URL param) |
 
-## 9.3 Pattern d'implémentation (couches)
+### Threading entraînement manuel
+
+Les endpoints `POST /basket/train` et `POST /ml/train/<type>` lancent l'entraînement dans un **thread dédié** avec un contexte Flask propre :
+
+```python
+import threading
+
+def _run_ml_task_async(task, model_type: str, app) -> None:
+    """Thread body — push app_context pour accès DB."""
+    with app.app_context():
+        try:
+            task.run()
+        except Exception as e:
+            current_app.logger.error(f"[ML-THREAD] {model_type}: {e}")
+
+@analytics_bp.post("/ml/train/<model_type>")
+@require_permission("ml:train")
+def trigger_training(model_type):
+    app_obj = current_app._get_current_object()
+    task    = TRAIN_FUNCTIONS.get(model_type.upper())
+    if task is None:
+        return jsonify({"error": "Type inconnu"}), 400
+    try:
+        # Celery disponible (VPS) → asynchrone
+        task.delay()
+    except Exception:
+        # PythonAnywhere : pas de broker → thread
+        t = threading.Thread(
+            target=_run_ml_task_async,
+            args=(task, model_type, app_obj),
+            daemon=True,
+        )
+        t.start()
+    return jsonify({"status": "started", "model_type": model_type}), 202
+```
+
+## 9.5 Script cron PythonAnywhere (`scripts/cron_train_all.py`)
+
+Situé à la **racine du dépôt** (`scripts/`, pas dans `backend/`), exécuté par les **Scheduled Tasks** PythonAnywhere (onglet Tasks, 02h00 UTC) :
+
+```python
+# scripts/cron_train_all.py (extrait)
+import sys, os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "backend"))
+
+from app import create_app
+from app.tasks.etl_tasks import etl_build_features, etl_extract_and_clean, etl_validate
+from app.tasks.ml_tasks import (
+    compute_demand_forecast_task, compute_rfm_segmentation_task,
+    compute_anomaly_detection_task, compute_credit_scoring_task,
+    compute_abc_xyz_task, compute_market_basket_task,
+)
+
+flask_app = create_app("production")
+with flask_app.app_context():
+    # ETL d'abord, puis 6 modèles — chaque erreur est attrapée indépendamment
+    for task_fn in [
+        etl_extract_and_clean, etl_validate, etl_build_features,
+        compute_demand_forecast_task, compute_credit_scoring_task,
+        compute_anomaly_detection_task, compute_rfm_segmentation_task,
+        compute_abc_xyz_task, compute_market_basket_task,
+    ]:
+        try:
+            task_fn.run()
+        except Exception as exc:
+            print(f"[ERROR] {task_fn.__name__}: {exc}")
+```
+
+Commande PythonAnywhere :
+```
+/home/<username>/.virtualenvs/gescom-bf/bin/python \
+    /home/<username>/gescom-bf/scripts/cron_train_all.py
+```
+Logs : `logs/cron_train_all.log` ; exit code 1 si une tâche échoue.
+
+## 9.6 Pattern d'implémentation (couches)
 
 ```mermaid
 flowchart LR
-    A[Route Blueprint] --> B[Schema Marshmallow - validation/sérialisation]
-    B --> C[Service - logique métier / règles de gestion]
-    C --> D[Repository / Modèle SQLAlchemy]
-    D --> E[(PostgreSQL - dev/VPS · MySQL - PythonAnywhere)]
-    C --> F[Audit Service - log]
-    C --> G[Celery - tâches asynchrones]
+    A[Route Blueprint] --> B[Schema Marshmallow — validation]
+    B --> C[Service — logique métier]
+    C --> D[Modèle SQLAlchemy]
+    D --> E[(MySQL PythonAnywhere)]
+    C --> F[Audit Service — log]
+    C --> G[ML Module — inférence / entraînement]
+    G --> H[(MLflow artefacts)]
 ```
 
-Chaque module suit la structure **routes → schemas → services → models**, garantissant la séparation des responsabilités et la testabilité (les services sont testés unitairement sans dépendance HTTP).
-
-## 9.4 Gestion multi-tenant / mono-tenant (résolution du schéma)
-
-Le middleware détecte le dialecte de la base de données et adapte son comportement :
-
-```python
-# app/utils/tenant.py (extrait)
-from app.utils.db_dialect import is_postgres_engine
-
-def set_search_path(schema_name: str) -> None:
-    """PostgreSQL : exécute SET search_path. MySQL : no-op (mono-tenant)."""
-    if not is_postgres_engine(db.session.get_bind()):
-        return   # MySQL / PythonAnywhere — toutes les tables sont dans la même base
-    if schema_name == "public":
-        db.session.execute(text("SET search_path TO public"))
-    else:
-        db.session.execute(text(f'SET search_path TO "{schema_name}", public'))
-```
+## 9.7 Gestion multi-tenant / mono-tenant
 
 | Dialecte | Mode | Comportement |
 |---|---|---|
-| PostgreSQL (dev / VPS) | Multi-tenant | `SET search_path TO tenant_<slug>, public` par requête |
-| MySQL (PythonAnywhere) | **Mono-tenant** | `set_search_path` est un no-op ; toutes les tables dans la base `<user>$gescom_bf` |
+| PostgreSQL (dev / VPS) | Multi-tenant | `SET search_path TO tenant_<slug>, public` |
+| MySQL (PythonAnywhere) | **Mono-tenant** | `set_search_path` est un no-op — toutes les tables dans `<user>$gescom_bf` |
 
-> Cf. `app/utils/db_dialect.py` pour la détection du dialecte. Cf. `27-MODELE-SAAS-MULTITENANT.md` pour le détail multi-tenant PostgreSQL.
-
-## 9.5 Exemple de service métier (vente avec remise)
-
-```python
-# app/sales/services.py (extrait illustratif)
-class SaleService:
-
-    ALLOWED_DISCOUNTS = {0, 5, 10, 15, 20}
-
-    def create_sale(self, payload, current_user):
-        if payload.get("discount_rate", 0) not in self.ALLOWED_DISCOUNTS:
-            raise ValidationError("DISCOUNT_RATE_INVALID")
-
-        if payload.get("discount_rate", 0) > 0 and not payload.get("approved_by_user_id"):
-            raise ValidationError("DISCOUNT_APPROVAL_REQUIRED")
-
-        for line in payload["lines"]:
-            available = StockRepository.get_available(
-                product_id=line["product_id"], branch_id=current_user.branch_id
-            )
-            if available < line["quantity"] and payload["channel"] != "offline":
-                raise ConflictError("INSUFFICIENT_STOCK")
-
-        sale = SaleRepository.create(payload, seller_id=current_user.id)
-        StockRepository.decrement_many(payload["lines"], current_user.branch_id)
-        AuditService.log("SALE_CREATED", entity="sale", entity_id=sale.id, user=current_user)
-        if payload.get("discount_rate", 0) > 0:
-            AuditService.log(
-                "DISCOUNT_APPLIED", entity="sale", entity_id=sale.id,
-                user=current_user, after={"rate": payload["discount_rate"],
-                                           "approved_by": payload["approved_by_user_id"]}
-            )
-        return sale
-```
-
-## 9.6 Gestion centralisée des erreurs
+## 9.8 Gestion centralisée des erreurs
 
 | Code HTTP | Code applicatif | Cas d'usage |
 |---|---|---|
-| 400 | `VALIDATION_ERROR` | Données d'entrée invalides (Marshmallow) |
+| 400 | `VALIDATION_ERROR` | Données invalides (Marshmallow) |
 | 401 | `INVALID_CREDENTIALS` / `TOKEN_EXPIRED` | Authentification |
-| 403 | `FORBIDDEN` / `ACCOUNT_DISABLED` | RBAC, compte désactivé |
+| 403 | `FORBIDDEN` / `ACCOUNT_DISABLED` / `PASSWORD_CHANGE_REQUIRED` | RBAC, compte désactivé, RF-05 (must_change_password=True) |
 | 404 | `NOT_FOUND` | Ressource inexistante |
 | 409 | `INSUFFICIENT_STOCK` / `CONFLICT` | Conflits métier |
 | 422 | `DISCOUNT_APPROVAL_REQUIRED` | Règle de gestion non respectée |
-| 500 | `INTERNAL_ERROR` | Erreur serveur (loggée, message générique côté client) |
+| 429 | `RATE_LIMIT_EXCEEDED` | Flask-Limiter — trop de tentatives |
+| 500 | `INTERNAL_ERROR` | Erreur serveur (loggée, message générique client) |
 
-## 9.7 Tâches planifiées (Celery Beat sur VPS · Scheduled Tasks sur PythonAnywhere)
-
-| Tâche | Commande CLI Flask | Fréquence | Description |
-|---|---|---|---|
-| `recompute_stock_predictions` | `flask ml-train-all` | Quotidienne (02h00) | Réentraîne/actualise les prévisions Prophet/XGBoost par produit/site (RG-37) |
-| `recompute_credit_scores` | — (déclenché par signal) | À chaque vente à crédit + nuit | Met à jour le score de solvabilité (RG-39) |
-| `run_anomaly_detection` | `flask anomaly-detect` | Toutes les heures | Exécute Isolation Forest sur les transactions récentes |
-| `compute_abc_xyz` | `flask abc-xyz` | Hebdomadaire | Recalcule la classification ABC/XYZ |
-| `db_backup` | `flask db-backup` | Quotidienne (03h00) | `pg_dump` (VPS) ou export MySQL (PythonAnywhere) |
-| `purge_old_audit_logs` | `flask purge-audit-logs` | Mensuelle | Archive les logs > 1 an vers stockage froid |
-| ETL Feature Store | `flask etl-daily` | Quotidienne | Extraction, validation, feature engineering |
-
-> Sur **PythonAnywhere**, ces commandes sont exécutées via les **Scheduled Tasks** (onglet "Tasks") — Celery et Redis ne sont pas requis. Sur VPS, Celery Beat les déclenche selon la config `CELERY_BEAT_SCHEDULE`.
-
-## 9.8 Configuration par environnement
+## 9.9 Configuration par environnement
 
 ```python
-# app/config.py (extrait)
 class BaseConfig:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    # JWT : durée de vie des tokens (lus depuis .env)
-    JWT_ACCESS_TOKEN_EXPIRES = timedelta(
-        minutes=int(os.environ.get("JWT_ACCESS_TOKEN_EXPIRES_MINUTES", 60))
-    )
-    JWT_REFRESH_TOKEN_EXPIRES = timedelta(
-        days=int(os.environ.get("JWT_REFRESH_TOKEN_EXPIRES_DAYS", 7))
-    )
-    CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
-
-class DevConfig(BaseConfig):
-    DEBUG = True   # N'active PAS le rechargeur Werkzeug (voir §9.9)
+    JWT_ACCESS_TOKEN_EXPIRES  = timedelta(minutes=15)
+    JWT_REFRESH_TOKEN_EXPIRES = timedelta(days=7)
+    # Pas de CELERY_BROKER_URL — Celery non utilisé sur PythonAnywhere
+    # L'entraînement ML asynchrone passe par des threads Python natifs
 
 class ProdConfig(BaseConfig):
     DEBUG = False
     PROPAGATE_EXCEPTIONS = True
+    # Flask-Limiter : storage_uri=memory:// défini dans extensions.py
+    # (pas de RATELIMIT_STORAGE_URI dans config — intentionnel)
+    SENTRY_DSN = os.environ.get("SENTRY_DSN")  # optionnel — monitoring Sentry
 ```
 
-## 9.9 Corrections de stabilité (dev Docker Compose)
+## 9.10 Dépendances principales (`requirements.txt`)
 
-### 9.9.1 Werkzeug reloader désactivé (`--no-reload`)
+```txt
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.7
+Flask-JWT-Extended==4.6.0
+Flask-Cors==4.0.1
+Flask-Limiter==3.8.0          # rate limiting — NEW
+flask-marshmallow==1.2.1
+marshmallow==3.21.3
+PyMySQL==1.1.1
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+bcrypt==4.1.3
+gunicorn==22.0.0
 
-En développement Docker/WSL2, le rechargeur de fichiers Werkzeug (`DEBUG=True`) surveille les fichiers montés via volume (`./backend:/app`). Sur WSL2, les événements `inotify` peuvent être déclenchés par des opérations normales du système de fichiers et provoquer des redémarrages de Flask en cours de session — invalidant les tokens JWT en mémoire et forçant une reconnexion toutes les ~72 secondes.
+# ML
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.5.1
+xgboost==2.1.1
+prophet==1.1.5
+joblib==1.4.2
+shap==0.45.1                  # explicabilité SHAP — NEW
+mlxtend==0.23.1               # Apriori Market Basket — NEW
+mlflow==2.14.3
 
-**Correction appliquée dans `docker-compose.yml`** :
+# Documents
+reportlab==4.2.2
+openpyxl==3.1.5
+
+# Monitoring (optionnel)
+sentry-sdk[flask]==2.x          # activé uniquement si SENTRY_DSN défini
+
+# Celery supprimé — entraînements ML via threads natifs + cron PythonAnywhere
+redis==5.0.7
+```
+
+## 9.11 Corrections de stabilité (dev Docker Compose)
+
+### Werkzeug reloader désactivé (`--no-reload`)
+
+En développement Docker/WSL2, le rechargeur Werkzeug peut invalider les tokens JWT. Correction dans `docker-compose.yml` :
 
 ```yaml
 command: >
@@ -207,32 +329,15 @@ command: >
          flask run --host=0.0.0.0 --port=5000 --no-reload"
 ```
 
-> `--no-reload` désactive le rechargeur de fichiers. Pour appliquer une modification de code, relancer manuellement le conteneur `api` (`docker compose restart api`).
-
-### 9.9.2 Clé secrète JWT (longueur minimale HMAC)
-
-Flask-JWT-Extended émet un `InsecureKeyLengthWarning` si `JWT_SECRET_KEY` fait moins de 32 octets. La valeur par défaut `"dev-jwt-secret"` (15 octets) déclenchait cet avertissement.
-
-**Variable `.env` correcte** :
+### Clé JWT (longueur minimale)
 
 ```env
-# Générer : python3 -c "import secrets; print(secrets.token_hex(32))"
-# (produit 64 caractères hex = 256 bits — minimum recommandé : 32 octets)
-JWT_SECRET_KEY=<64 caractères hex>
-JWT_ACCESS_TOKEN_EXPIRES_MINUTES=60
+# python3 -c "import secrets; print(secrets.token_hex(32))"
+JWT_SECRET_KEY=<64 caractères hex — 256 bits>
 ```
 
-> En production PythonAnywhere, utiliser `secrets.token_hex(32)` (128 bits minimum, 256 bits recommandé). Ne jamais committer la vraie clé dans le dépôt.
-
-### 9.9.3 Celery : avertissement de connexion au démarrage
-
-Depuis Celery 5.3, la tentative de reconnexion au broker au démarrage sans configuration explicite génère un `CPendingDeprecationWarning`.
-
-**Correction appliquée dans `backend/app/celery_app.py`** :
+### Celery : avertissement de reconnexion
 
 ```python
-celery_app.conf.update(
-    broker_connection_retry_on_startup=True,   # supprime le warning Celery 5.3+
-    # ... autres clés de configuration
-)
+celery_app.conf.update(broker_connection_retry_on_startup=True)
 ```
