@@ -15,7 +15,7 @@ from itertools import combinations
 import pandas as pd
 
 from app.extensions import db
-from app.ml.common import record_predictions, register_model, latest_predictions
+from app.ml.common import record_predictions, register_model, latest_predictions, MLflowRun
 from app.models import Product, Sale, SaleLine, SaleStatus
 
 PREDICTION_TYPE = "MARKET_BASKET"
@@ -82,7 +82,13 @@ def _apriori_rules(
     if frequent_itemsets.empty:
         return pd.DataFrame()
 
-    rules = association_rules(frequent_itemsets, metric="lift", min_threshold=min_lift)
+    # num_itemsets requis depuis mlxtend 0.23+
+    rules = association_rules(
+        frequent_itemsets,
+        metric="lift",
+        min_threshold=min_lift,
+        num_itemsets=len(frequent_itemsets),
+    )
     rules = rules[rules["confidence"] >= min_confidence]
     return rules.sort_values("lift", ascending=False)
 
@@ -174,11 +180,19 @@ def train(
         "top_lift":        round(rules_list[0]["lift"], 3) if rules_list else 0.0,
     }
 
-    model = register_model(
-        model_type=MODEL_TYPE,
-        algorithm=algorithm,
-        metrics=metrics,
-    )
+    with MLflowRun(MODEL_TYPE) as run:
+        run.log_params({
+            "months": months,
+            "min_support": min_support,
+            "min_confidence": min_confidence,
+        })
+        run.log_metrics({k: float(v) for k, v in metrics.items() if isinstance(v, (int, float))})
+        model = register_model(
+            model_type=MODEL_TYPE,
+            algorithm=algorithm,
+            metrics=metrics,
+            mlflow_run_id=run.run_id,
+        )
 
     entries = [
         {

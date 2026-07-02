@@ -57,10 +57,40 @@ class StockCountSchema(Schema):
         return obj.cancelled_by.full_name if obj.cancelled_by else None
 
     def get_lines_count(self, obj):
-        return len(obj.lines)
+        # Vue liste : evite de charger toutes les lignes en memoire.
+        # Si les lignes sont deja en cache SQLAlchemy (vue detail), len() suffit.
+        from sqlalchemy import inspect as sa_inspect
+        try:
+            attr = sa_inspect(obj).attrs.get("lines")
+            if attr is not None and attr.loaded_value is not None:
+                return len(obj.lines)
+        except Exception:
+            pass
+        # Fallback propre : sous-requete COUNT
+        from app.extensions import db
+        from app.models.inventory import StockCountLine
+        return db.session.query(StockCountLine).filter_by(stock_count_id=obj.id).count()
 
     def get_lines_with_variance(self, obj):
-        return sum(1 for line in obj.lines if line.variance not in (None, 0))
+        # Meme optimisation : sous-requete au lieu d un chargement complet.
+        from sqlalchemy import inspect as sa_inspect
+        try:
+            attr = sa_inspect(obj).attrs.get("lines")
+            if attr is not None and attr.loaded_value is not None:
+                return sum(1 for line in obj.lines if line.variance not in (None, 0))
+        except Exception:
+            pass
+        from app.extensions import db
+        from app.models.inventory import StockCountLine
+        return (
+            db.session.query(StockCountLine)
+            .filter(
+                StockCountLine.stock_count_id == obj.id,
+                StockCountLine.variance.isnot(None),
+                StockCountLine.variance != 0,
+            )
+            .count()
+        )
 
 
 class StockCountDetailSchema(StockCountSchema):

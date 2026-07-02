@@ -63,8 +63,10 @@ def set_search_path(schema_name: str) -> None:
             status_code=403,
         )
 
-    if not is_postgres_engine(db.session.get_bind()):
+    if not is_postgres_engine(db.engine):
         # MySQL / PythonAnywhere : no-op, validation suffit.
+        # Note : db.session.get_bind() est retire dans SQLAlchemy 2.x,
+        # on utilise db.engine directement.
         return
 
     if schema_name == "public":

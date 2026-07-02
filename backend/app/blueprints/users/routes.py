@@ -80,10 +80,12 @@ def create_user():
     company_schema = get_jwt().get("company_schema", current_app.config["DEFAULT_TENANT_SCHEMA"])
     register_user_index(email, company_schema)
 
+    db.session.flush()  # materialise user.id avant l'audit log
     AuditLog.record(
         event_type="USER_CREATED",
         user_id=get_jwt_identity(),
         entity_type="User",
+        entity_id=user.id,  # Fix : entity_id manquait (tracabilite RF-30)
         description=f"Creation de l'utilisateur {user.email}",
     )
     db.session.commit()

@@ -426,7 +426,7 @@ export default function CreditsPage() {
   const totalEncours = filtered.reduce((s, c) => s + parseFloat(c.credit_balance), 0);
   const nbClients = filtered.length;
   const nbEleve = filtered.filter((c) => riskLevel(c) === "ÉLEVÉ").length;
-  const nbSolde = customers.length - filtered.filter((c) => parseFloat(c.credit_balance) > 0).length;
+  const nbSolde = filtered.filter((c) => parseFloat(c.credit_balance) <= 0).length;
 
   // ---- Données graphiques ----
   const top10 = [...filtered]

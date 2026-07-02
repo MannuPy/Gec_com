@@ -421,7 +421,7 @@ def latest() -> list[dict]:
         {
             "customer_id": p.entity_id,
             "model_id": p.model_id,
-            "created_at": p.created_at.isoformat(),
+            "created_at": p.created_at.isoformat() if p.created_at else None,
             **p.payload_json,
         }
         for p in latest_predictions(PREDICTION_TYPE)

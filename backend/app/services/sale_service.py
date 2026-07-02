@@ -496,6 +496,7 @@ def sync_offline_sales(items: list, cashier_id: str) -> list:
             result = sync_offline_sale(item, cashier_id)
             results.append(result)
         except Exception as exc:
+            db.session.rollback()  # Fix : evite la session corrompue sur erreur
             results.append({
                 "offline_uuid": item.get("offline_uuid"),
                 "status": "ERREUR",

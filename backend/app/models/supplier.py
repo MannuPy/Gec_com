@@ -33,6 +33,7 @@ class SupplierReception(db.Model, UUIDPrimaryKeyMixin, TimestampMixin):
 
     supplier = db.relationship("Supplier", lazy="joined")
     branch = db.relationship("Branch", lazy="joined")
+    created_by = db.relationship("User", foreign_keys=[created_by_id], lazy="joined")
     lines = db.relationship(
         "SupplierReceptionLine", backref="reception", cascade="all, delete-orphan", lazy="joined"
     )

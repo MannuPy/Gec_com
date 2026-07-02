@@ -92,8 +92,8 @@ function KpiCard({ title, value, subtitle, icon, colorClass }: KpiCardProps) {
 
 export default function ComptaPage() {
   const [branchId, setBranchId] = useState("");
-  const [datDebut, setDatDebut] = useState(firstDayOfMonth);
-  const [datFin, setDatFin] = useState(today);
+  const [datDebut, setDatDebut] = useState(firstDayOfMonth());
+  const [datFin, setDatFin] = useState(today());
 
   const { data, isLoading, isError, refetch, isFetching } = useComptaSummary({
     branchId: branchId || undefined,

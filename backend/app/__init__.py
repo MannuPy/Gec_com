@@ -209,9 +209,27 @@ def register_frontend(app: Flask) -> None:
 
         Les routes /api/* et /health ne passent jamais par ce handler car
         leurs blueprints sont enregistres en premier par Flask.
+
+        Cache-Control :
+        - assets/ (JS/CSS hasches par Vite) : immutable, 1 an — le hash garantit
+          l'invalidation automatique a chaque nouveau build.
+        - index.html (et toutes les routes SPA) : no-cache — le navigateur doit
+          toujours revalider pour obtenir les references de chunks a jour.
+          Sans cela, un rechargement apres deploiement peut tenter de charger
+          d'anciens chunks (supprimes) : "Failed to fetch dynamically imported module".
         """
         if path:
             static_file = os.path.join(dist_dir, path)
             if os.path.isfile(static_file):
-                return send_from_directory(dist_dir, path)
-        return send_from_directory(dist_dir, "index.html")
+                response = send_from_directory(dist_dir, path)
+                # Assets haches (Vite met un hash de contenu dans le nom de fichier)
+                # → peuvent etre caches indefiniment.
+                if path.startswith("assets/") or path.endswith((".js", ".css", ".woff2", ".woff")):
+                    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                return response
+        # index.html — JAMAIS mis en cache : doit toujours refleter le dernier build.
+        response = send_from_directory(dist_dir, "index.html")
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response

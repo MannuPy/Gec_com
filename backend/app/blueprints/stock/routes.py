@@ -100,4 +100,5 @@ def create_adjustment():
         created_by_id=get_jwt_identity(),
         comment=payload["comment"],
     )
-    return jsonify({"message": "Ajustement de stock effectue."})
+    db.session.commit()  # Fix : persist l'ajustement (etait manquant)
+    return jsonify(stock_movement_single_schema.dump(movement)), 201

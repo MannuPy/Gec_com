@@ -20,6 +20,7 @@ class MLModelType(str, enum.Enum):
     ANOMALY_DETECTION = "ANOMALY_DETECTION"
     ABC_XYZ = "ABC_XYZ"
     RFM_SEGMENTATION = "RFM_SEGMENTATION"
+    MARKET_BASKET = "MARKET_BASKET"  # Fix : manquait dans l'enum
 
 
 class MLModel(db.Model, UUIDPrimaryKeyMixin):

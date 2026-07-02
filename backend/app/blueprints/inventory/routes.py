@@ -34,8 +34,26 @@ stock_count_detail_schema = StockCountDetailSchema()
 @inventory_bp.get("/counts")
 @require_permission("inventory:read")
 def list_stock_counts():
-    """Liste des sessions d inventaire, filtrables par site et statut."""
-    query = StockCount.query
+    """Liste des sessions d inventaire, filtrables par site et statut.
+
+    Optimisation MySQL/PythonAnywhere : les lignes (stock_count_lines) ne sont
+    PAS chargees en liste — elles sont agregees via sous-requetes SQL pour
+    calculer lines_count et lines_with_variance sans faire exploser les JOIN.
+    """
+    from sqlalchemy import func, case
+    from sqlalchemy.orm import joinedload, load_only
+
+    query = (
+        db.session.query(StockCount)
+        .options(
+            # Charger seulement les relations legeres (branch, created_by, etc.)
+            joinedload(StockCount.branch).load_only("id", "name"),
+            joinedload(StockCount.created_by).load_only("id", "full_name"),
+            joinedload(StockCount.validated_by).load_only("id", "full_name"),
+            joinedload(StockCount.cancelled_by).load_only("id", "full_name"),
+            # NE PAS charger les lignes en liste (trop lourd) — calcul via schema
+        )
+    )
 
     branch_id = request.args.get("branch_id")
     if branch_id:

@@ -27,7 +27,7 @@ def compute_elasticity(
     months: int = 6,
     branch_id: str = None,
     min_sales: int = 20,
-) -> list[dict]:
+) -> dict:
     """
     Calcule l'élasticité-remise pour chaque produit ayant suffisamment de données.
     Utilise une régression log-log : ln(quantité) = α + β × ln(1 - taux_remise).
@@ -149,7 +149,13 @@ def compute_elasticity(
             "recommendation":         _recommend_discount_policy(elasticity, avg_discount),
         })
 
-    return sorted(results, key=lambda r: abs(r.get("elasticity") or 0), reverse=True)
+    # Fix : normalise le type de retour — toujours un dict {"items", "count", "diagnostic"}
+    # (les chemins no-data et no-discount retournaient deja un dict, ce chemin retournait une liste)
+    return {
+        "items": sorted(results, key=lambda r: abs(r.get("elasticity") or 0), reverse=True),
+        "count": len(results),
+        "diagnostic": None,
+    }
 
 
 def _interpret_elasticity(e: float | None) -> str:

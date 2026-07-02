@@ -86,6 +86,7 @@ def register_cli(app: Flask) -> None:
         """Entraine/recalcule l'ensemble des modeles ML (RF-25 a RF-28)."""
         from app.tasks.ml_tasks import (
             compute_abc_xyz_task,
+            compute_market_basket_task,
             compute_rfm_segments_task,
             detect_anomalies_task,
             train_credit_scoring_task,
@@ -98,6 +99,7 @@ def register_cli(app: Flask) -> None:
             "anomaly_detection": detect_anomalies_task.run(days=anomaly_days),
             "abc_xyz": compute_abc_xyz_task.run(months=months),
             "rfm_segmentation": compute_rfm_segments_task.run(months=rfm_months),
+            "market_basket": compute_market_basket_task.run(months=months),  # Fix : manquait
         }
         click.echo(json.dumps(results, default=str, ensure_ascii=False))
 

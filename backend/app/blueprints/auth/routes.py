@@ -25,6 +25,7 @@ def _build_additional_claims(user: User, company_schema: str) -> dict:
         "permissions": user.role.permission_codes(),
         "branch_id": user.branch_id,
         "company_schema": company_schema,
+        "must_change_password": user.must_change_password,  # RF-05 : blocage serveur
     }
 
 

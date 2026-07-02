@@ -31,6 +31,8 @@ class Transfer(db.Model, UUIDPrimaryKeyMixin, TimestampMixin):
     destination_branch = db.relationship(
         "Branch", foreign_keys=[destination_branch_id], lazy="joined"
     )
+    created_by = db.relationship("User", foreign_keys=[created_by_id], lazy="joined")
+    received_by = db.relationship("User", foreign_keys=[received_by_id], lazy="joined")
     lines = db.relationship(
         "TransferLine", backref="transfer", cascade="all, delete-orphan", lazy="joined"
     )

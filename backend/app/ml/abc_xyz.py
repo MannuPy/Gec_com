@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from app.extensions import db
-from app.ml.common import register_model, record_predictions, MLflowRun
+from app.ml.common import register_model, record_predictions, MLflowRun, latest_predictions
 from app.models import Product, Sale, SaleLine, SaleStatus
 
 PREDICTION_TYPE = "ABC_XYZ"
@@ -64,7 +64,7 @@ def compute_abc_xyz(months: int = 6) -> pd.DataFrame:
         )
 
     df["line_total"] = df["line_total"].astype(float)
-    df["week"] = pd.to_datetime(df["created_at"]).dt.to_period("W").apply(lambda p: p.start_time)
+    df["week"] = pd.to_datetime(df["created_at"]).dt.to_period("W").apply(lambda p: p.to_timestamp())
 
     # --- ABC : contribution au CA cumule ---
     revenue_by_product = df.groupby("product_id")["line_total"].sum().sort_values(ascending=False)
@@ -136,7 +136,7 @@ def train(months: int = 6) -> dict:
         "n_class_a": float((df["abc_class"] == "A").sum()) if not df.empty else 0.0,
         "n_class_b": float((df["abc_class"] == "B").sum()) if not df.empty else 0.0,
         "n_class_c": float((df["abc_class"] == "C").sum()) if not df.empty else 0.0,
-        "n_dead_stock": float((df["dead_stock"] == True).sum()) if not df.empty else 0.0,
+        "n_dead_stock": float(df["dead_stock"].sum()) if not df.empty else 0.0,
     }
 
     with MLflowRun(MODEL_TYPE) as run:
@@ -174,8 +174,6 @@ def train(months: int = 6) -> dict:
 
 
 def latest() -> list[dict]:
-    from app.ml.common import latest_predictions
-
     return [
         {"product_id": p.entity_id, "model_id": p.model_id, "created_at": p.created_at.isoformat(), **p.payload_json}
         for p in latest_predictions(PREDICTION_TYPE)
